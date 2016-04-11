@@ -18,7 +18,8 @@
     </dependencies>
   </metadata>
   <files>
-    <file src="Mono.Debugging.Win32\bin\Release\Mono.Debugging.Win32.*" target="lib/net40" />
-    <file src="Mono.Debugging.Win32\bin\Release\CorApi*" target="lib/net40" />
+    <file src="Mono.Debugging.Win32\bin\Release\CorApi.dll" target="lib/net40" />
+    <file src="Mono.Debugging.Win32\bin\Release\CorApi2.dll" target="lib/net40" />
+    <file src="Mono.Debugging.Win32\bin\Release\Mono.Debugging.Win32.dll" target="lib/net40" />
   </files>
 </package>
