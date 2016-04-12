@@ -296,6 +296,8 @@ Project("{9344BDBB-3E7F-41FC-A0DD-8665D75EE146}") = "po", "po\po.mdproj", "{9E06
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NUnit3Runner", "src\addins\MonoDevelop.UnitTesting.NUnit\NUnit3Runner\NUnit3Runner.csproj", "{D2A4E99E-FC2D-45A9-8BE7-1AB7DF95BA2A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mono.Debugging.Win32", "src\addins\MonoDevelop.Debugger.Win32\Mono.Debugging.Win32\Mono.Debugging.Win32.csproj", "{74704C00-5861-4F86-920C-865148A175C5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -1939,6 +1941,46 @@ Global
 		{D2A4E99E-FC2D-45A9-8BE7-1AB7DF95BA2A}.Debug|x86.Build.0 = Debug|Any CPU
 		{D2A4E99E-FC2D-45A9-8BE7-1AB7DF95BA2A}.Release|x86.ActiveCfg = Release|Any CPU
 		{D2A4E99E-FC2D-45A9-8BE7-1AB7DF95BA2A}.Release|x86.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Debug|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Debug|Mixed Platforms.Build.0 = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugGnome|Any CPU.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugGnome|Any CPU.Build.0 = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugGnome|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugGnome|Mixed Platforms.Build.0 = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugGnome|x86.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugMac|Any CPU.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugMac|Any CPU.Build.0 = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugMac|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugMac|Mixed Platforms.Build.0 = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugMac|x86.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugWin32|Any CPU.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugWin32|Any CPU.Build.0 = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugWin32|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugWin32|Mixed Platforms.Build.0 = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.DebugWin32|x86.ActiveCfg = Debug|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Release|Mixed Platforms.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.Release|x86.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseGnome|Any CPU.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseGnome|Any CPU.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseGnome|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseGnome|Mixed Platforms.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseGnome|x86.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseMac|Any CPU.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseMac|Any CPU.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseMac|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseMac|Mixed Platforms.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseMac|x86.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseWin32|Any CPU.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseWin32|Any CPU.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseWin32|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseWin32|Mixed Platforms.Build.0 = Release|Any CPU
+		{74704C00-5861-4F86-920C-865148A175C5}.ReleaseWin32|x86.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{7525BB88-6142-4A26-93B9-A30C6983390A} = {9D360D43-0C05-49D6-84DB-4E7AB2F38F82}
@@ -2070,6 +2112,7 @@ Global
 		{8EE5A588-9445-48EC-97BD-BF066E7FFD51} = {8F48ECA6-CFFF-4EBF-BC92-817199EDE9AF}
 		{6224D87E-2AC1-4D9F-91ED-714F797297BF} = {DE462010-393D-4655-A42C-2C78BB14D2FA}
 		{D2A4E99E-FC2D-45A9-8BE7-1AB7DF95BA2A} = {DE462010-393D-4655-A42C-2C78BB14D2FA}
+		{74704C00-5861-4F86-920C-865148A175C5} = {8F47F5EC-2F57-4030-B658-7B1002DA90C2}
 	EndGlobalSection
 	GlobalSection(MonoDevelopProperties) = preSolution
 		Policies = $0
