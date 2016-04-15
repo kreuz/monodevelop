@@ -134,13 +134,24 @@ namespace Mono.Debugging.Win32
 				if (process != null) {
 					// Process already running. Stop it. In the ProcessExited event the
 					// debugger engine will be terminated
-					process.Stop (4000);
-					if (attaching) {
-						process.Detach ();
-					}
-					else {
-						process.Terminate (1);
-					}
+				  try {
+				    process.Stop (4000);
+				    if (attaching) {
+				      process.Detach ();
+				    }
+				    else {
+				      process.Terminate (1);
+				    }
+				  }
+				  catch (COMException e) {
+				    // process was terminated, but debugger operation thread doesn't call ProcessExit callback at the time,
+				    // so we just think that the process is alive but that's wrong.
+				    // This may happen when e.g. when target process exited and Dispose was called at the same time
+				    // rethrow the exception in other case
+				    if (e.ErrorCode != (int) HResult.CORDBG_E_PROCESS_TERMINATED) {
+				      throw;
+				    }
+				  }
 				}
 			}
 		}
