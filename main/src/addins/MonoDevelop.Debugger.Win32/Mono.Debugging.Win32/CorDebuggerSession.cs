@@ -556,12 +556,22 @@ namespace Mono.Debugging.Win32
 					catch (Exception ex) {
 						OnDebuggerOutput (true, string.Format ("Debugger Error: {0}\n", ex.Message));
 					}
-					e.Module.SetJmcStatus (true, null);
+					try {
+						e.Module.SetJmcStatus (true, null);
+					}
+					catch {
+						// somewhen exceptions is thrown
+					}
 				}
 				else {
 					// Flag modules without debug info as not JMC. In this way
 					// the debugger won't try to step into them
-					e.Module.SetJmcStatus (false, null);
+					try {
+						e.Module.SetJmcStatus (false, null);
+					}
+					catch {
+						// somewhen exceptions is thrown
+					}
 				}
 
 				ModuleInfo moi;
