@@ -1159,6 +1159,9 @@ namespace Mono.Debugging.Win32
 			try {
 				ObjectAdapter.AsyncExecute (mc, ctx.Options.EvaluationTimeout);
 			}
+			catch (COMException ex) {
+				throw new EvaluatorException (ex.Message);
+			}
 			finally {
 				process.OnEvalComplete -= completeHandler;
 				process.OnEvalException -= exceptionHandler;
