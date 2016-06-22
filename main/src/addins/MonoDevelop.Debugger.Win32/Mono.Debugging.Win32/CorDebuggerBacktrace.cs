@@ -34,8 +34,6 @@ namespace Mono.Debugging.Win32
 		  try {
 		    var chains = thread.Chains;
 		    foreach (CorChain chain in chains) {
-		      if (!chain.IsManaged)
-		        continue;
 		      foreach (CorFrame frame in chain.Frames)
 		        result.Add (frame);
 		    }
