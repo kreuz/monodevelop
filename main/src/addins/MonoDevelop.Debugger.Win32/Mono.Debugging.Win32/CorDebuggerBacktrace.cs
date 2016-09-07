@@ -87,7 +87,7 @@ namespace Mono.Debugging.Win32
 
 		public static SequencePoint GetSequencePoint(CorDebuggerSession session, CorFrame frame)
 		{
-			ISymbolReader reader = session.GetReaderForModule (frame.Function.Module.Name);
+			ISymbolReader reader = session.GetReaderForModule (frame.Function.Module);
 			if (reader == null)
 				return null;
 
