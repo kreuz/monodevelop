@@ -83,6 +83,13 @@ namespace Mono.Debugging.Win32
 			get { return evaluationTimestamp; }
 		}
 
+		internal CorProcess Process
+		{
+			get
+			{
+				return process;
+			}
+		}
 
 		public override void Dispose ( )
 		{
@@ -188,7 +195,7 @@ namespace Mono.Debugging.Win32
 					flags |= (int) CreationFlags.CREATE_NEW_CONSOLE;
 				}
 
-				process = dbg.CreateProcess (startInfo.Command, cmdLine, startInfo.WorkingDirectory, env, flags);				
+				process = dbg.CreateProcess (startInfo.Command, cmdLine, startInfo.WorkingDirectory, env, flags);
 				SetupProcess (process);
 				process.Continue (false);
 			});
@@ -1247,76 +1254,32 @@ namespace Mono.Debugging.Win32
 				arguments.CopyTo (args, 1);
 			}
 
-			CorMethodCall mc = new CorMethodCall ();
-			CorValue exception = null;
-			CorEval eval = ctx.Eval;
-
-		    DebugEventHandler<CorEvalEventArgs> completeHandler = delegate (object o, CorEvalEventArgs eargs) {
-				OnEndEvaluating ();
-				mc.DoneEvent.Set ();
-				eargs.Continue = false;
-			};
-
-            DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
-            {
-				OnEndEvaluating ();
-				exception = eargs.Eval.Result;
-				mc.DoneEvent.Set ();
-				eargs.Continue = false;
-			};
-
-			process.OnEvalComplete += completeHandler;
-			process.OnEvalException += exceptionHandler;
-
-			mc.OnInvoke = delegate {
-				if (function.GetMethodInfo (this).Name == ".ctor")
-					eval.NewParameterizedObject (function, typeArgs, args);
-				else
-					eval.CallParameterizedFunction (function, typeArgs, args);
-				process.SetAllThreadsDebugState (CorDebugThreadState.THREAD_SUSPEND, ctx.Thread);
-				ClearEvalStatus ();
-				OnStartEvaluating ();
-				process.Continue (false);
-			};
-			mc.OnAbort = delegate {
-				eval.Abort ();
-			};
-			mc.OnGetDescription = delegate {
-				MethodInfo met = function.GetMethodInfo (ctx.Session);
-				if (met != null)
-					return met.DeclaringType.FullName + "." + met.Name;
-				else
-					return "<Unknown>";
-			};
+			var methodCall = new CorMethodCall (ctx, function, typeArgs, args);
 
 			try {
-				ObjectAdapter.AsyncExecute (mc, ctx.Options.EvaluationTimeout);
+				ObjectAdapter.AsyncExecute (methodCall, ctx.Options.EvaluationTimeout);
 			}
 			catch (COMException ex) {
 				throw new EvaluatorException (ex.Message);
 			}
-			finally {
-				process.OnEvalComplete -= completeHandler;
-				process.OnEvalException -= exceptionHandler;
-			}
 
 			WaitUntilStopped ();
-			if (exception != null) {
-				CorValRef vref = new CorValRef (exception);
+			if (methodCall.IsException) {
+				var vref = new CorValRef (methodCall.Result);
 				throw new EvaluatorExceptionThrownException (vref, ObjectAdapter.GetValueTypeName (ctx, vref));
 			}
 
-			return eval.Result;
+			return methodCall.Result;
 		}
 
-		void OnStartEvaluating ( )
+		internal void OnStartEvaluating ( )
 		{
 			lock (debugLock) {
 				evaluating = true;
 			}
 		}
 
-		void OnEndEvaluating ( )
+		internal void OnEndEvaluating ( )
 		{
 			lock (debugLock) {
 				evaluating = false;
@@ -1414,7 +1377,7 @@ namespace Mono.Debugging.Win32
 			}
 		}
 
-		void ClearEvalStatus ( )
+		internal void ClearEvalStatus ( )
 		{
 			foreach (CorProcess p in dbg.Processes) {
 				if (p.Id == processId) {
