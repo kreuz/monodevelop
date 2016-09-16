@@ -991,53 +991,59 @@ namespace Mono.Debugging.Win32
 							binfo.SetStatus (BreakEventStatus.Invalid, string.Format("Invalid line {0}", bp.Line));
 							return binfo;
 						}
-						ISymbolMethod met = null;
+						ISymbolMethod[] methods = null;
 						if (doc.ModuleInfo.Reader is ISymbolReader2) {
-							var methods = ((ISymbolReader2)doc.ModuleInfo.Reader).GetMethodsFromDocumentPosition (doc.Document, line, 0);
-							if (methods != null && methods.Any ()) {
-								if (methods.Count () == 1) {
-									met = methods [0];
-								} else {
-									int deepest = -1;
-									foreach (var method in methods) {
-										var firstSequence = method.GetSequencePoints ().FirstOrDefault ((sp) => sp.StartLine != 0xfeefee);
-										if (firstSequence != null && firstSequence.StartLine >= deepest) {
-											deepest = firstSequence.StartLine;
-											met = method;
-										}
-									}
-								}
-							}
+							methods = ((ISymbolReader2)doc.ModuleInfo.Reader).GetMethodsFromDocumentPosition (doc.Document, line, 0);
 						}
-						if (met == null) {
-							met = doc.ModuleInfo.Reader.GetMethodFromDocumentPosition (doc.Document, line, 0);
+						if (methods == null || methods.Length == 0) {
+						    var met = doc.ModuleInfo.Reader.GetMethodFromDocumentPosition (doc.Document, line, 0);
+						    if (met != null)
+						        methods = new ISymbolMethod[] {met};
 						}
-						if (met == null) {
-							binfo.SetStatus (BreakEventStatus.Invalid, "Unable to resolve method at position");
+
+					    if (methods == null || methods.Length == 0) {
+					        binfo.SetStatus (BreakEventStatus.Invalid, "Unable to resolve method at position");
 							return binfo;
 						}
 
 						int offset = -1;
 						int firstSpInLine = -1;
-						foreach (SequencePoint sp in met.GetSequencePoints ()) {
-							if (sp.IsInside (doc.Document.URL, line, bp.Column)) {
-								offset = sp.Offset;
-								break;
-							} else if (firstSpInLine == -1
-									   && sp.StartLine == line
-									   && sp.Document.URL.Equals (doc.Document.URL, StringComparison.OrdinalIgnoreCase)) {
-								firstSpInLine = sp.Offset;
+
+					    ISymbolMethod bestOffsetMethod = null;
+					    ISymbolMethod bestFirstSpMethod = null;
+
+					    int bestOffsetColumn = -1;
+					    int bestFirstSpColumn = -1;
+
+					    foreach (var met in methods) {
+							foreach (SequencePoint sp in met.GetSequencePoints ()) {
+							    if (sp.IsInside (doc.Document.URL, line, bp.Column)) {
+							        if (bestOffsetMethod == null || bestOffsetColumn < sp.StartColumn) {
+							            offset = sp.Offset;
+							            bestOffsetMethod = met;
+							            bestOffsetColumn = sp.StartColumn;
+							            break;
+							        }
+							    } else if (sp.StartLine == line
+										 && sp.Document.URL.Equals (doc.Document.URL, StringComparison.OrdinalIgnoreCase)
+							             && (bestFirstSpMethod == null || bestFirstSpColumn > sp.StartColumn)) {
+								    firstSpInLine = sp.Offset;
+							        bestFirstSpMethod = met;
+							        bestFirstSpColumn = sp.StartColumn;
+							    }
 							}
 						}
+
 						if (offset == -1) {//No exact match? Use first match in that line
 							offset = firstSpInLine;
+						    bestOffsetMethod = bestFirstSpMethod;
 						}
 						if (offset == -1) {
 							binfo.SetStatus (BreakEventStatus.Invalid, "Unable to calculate an offset in IL code");
 							return binfo;
 						}
 
-						CorFunction func = doc.ModuleInfo.Module.GetFunctionFromToken (met.Token.GetToken ());
+						CorFunction func = doc.ModuleInfo.Module.GetFunctionFromToken (bestOffsetMethod.Token.GetToken ());
 						CorFunctionBreakpoint corBp = func.ILCode.CreateBreakpoint (offset);
 						corBp.Activate (bp.Enabled);
 						breakpoints [corBp] = binfo;
