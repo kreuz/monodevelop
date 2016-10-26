@@ -46,7 +46,7 @@ namespace Mono.Debugging.Win32
 		Dictionary<int, ThreadInfo> threads = new Dictionary<int,ThreadInfo> ();
 		readonly Dictionary<CorBreakpoint, BreakEventInfo> breakpoints = new Dictionary<CorBreakpoint, BreakEventInfo> ();
 		readonly Dictionary<long, CorHandleValue> handles = new Dictionary<long, CorHandleValue>();
-		
+
 
 		public CorObjectAdaptor ObjectAdapter = new CorObjectAdaptor();
 
@@ -132,24 +132,24 @@ namespace Mono.Debugging.Win32
 				if (process != null) {
 					// Process already running. Stop it. In the ProcessExited event the
 					// debugger engine will be terminated
-				  try {
-				    process.Stop (4000);
-				    if (attaching) {
-				      process.Detach ();
-				    }
-				    else {
-				      process.Terminate (1);
-				    }
-				  }
-				  catch (COMException e) {
-				    // process was terminated, but debugger operation thread doesn't call ProcessExit callback at the time,
-				    // so we just think that the process is alive but that's wrong.
-				    // This may happen when e.g. when target process exited and Dispose was called at the same time
-				    // rethrow the exception in other case
-				    if (e.ErrorCode != (int) HResult.CORDBG_E_PROCESS_TERMINATED) {
-				      throw;
-				    }
-				  }
+					try {
+						process.Stop (4000);
+						if (attaching) {
+							process.Detach ();
+						}
+						else {
+							process.Terminate (1);
+						}
+					}
+					catch (COMException e) {
+						// process was terminated, but debugger operation thread doesn't call ProcessExit callback at the time,
+						// so we just think that the process is alive but that's wrong.
+						// This may happen when e.g. when target process exited and Dispose was called at the same time
+						// rethrow the exception in other case
+						if (e.ErrorCode != (int) HResult.CORDBG_E_PROCESS_TERMINATED) {
+							throw;
+						}
+					}
 				}
 			}
 		}
@@ -182,13 +182,13 @@ namespace Mono.Debugging.Win32
 				int flags = 0;
 				if (!startInfo.UseExternalConsole) {
 					flags = (int)CreationFlags.CREATE_NO_WINDOW;
-						flags |= DebuggerExtensions.CREATE_REDIRECT_STD;
+					flags |= DebuggerExtensions.CREATE_REDIRECT_STD;
 				}
 				else {
 					flags |= (int) CreationFlags.CREATE_NEW_CONSOLE;
 				}
 
-				process = dbg.CreateProcess (startInfo.Command, cmdLine, startInfo.WorkingDirectory, env, flags);				
+				process = dbg.CreateProcess (startInfo.Command, cmdLine, startInfo.WorkingDirectory, env, flags);
 				SetupProcess (process);
 				process.Continue (false);
 			});
@@ -269,9 +269,9 @@ namespace Mono.Debugging.Win32
 			lock (threads) {
 				threads.Clear ();
 			}
-		  lock (processes) {
-		    processes.Clear();
-		  }
+			lock (processes) {
+				processes.Clear();
+			}
 		}
 
 		void OnBreak (object sender, CorThreadEventArgs e)
@@ -319,9 +319,9 @@ namespace Mono.Debugging.Win32
 			string name = method.Name;
 
 			return method.IsSpecialName &&
-			(name.StartsWith ("get_", StringComparison.Ordinal) ||
-			name.StartsWith ("set_", StringComparison.Ordinal) ||
-			name.StartsWith ("op_", StringComparison.Ordinal));
+			       (name.StartsWith ("get_", StringComparison.Ordinal) ||
+			        name.StartsWith ("set_", StringComparison.Ordinal) ||
+			        name.StartsWith ("op_", StringComparison.Ordinal));
 		}
 
 		static bool IsCompilerGenerated (MethodInfo method)
@@ -376,7 +376,7 @@ namespace Mono.Debugging.Win32
 
 			if ((Options.StepOverPropertiesAndOperators || IsCompilerGenerated(e.Thread.ActiveFrame.Function.GetMethodInfo (this))) &&
 			    IsPropertyOrOperatorMethod (e.Thread.ActiveFrame.Function.GetMethodInfo (this)) &&
-				e.StepReason == CorDebugStepReason.STEP_CALL) {
+			    e.StepReason == CorDebugStepReason.STEP_CALL) {
 				stepper.StepOut ();
 				autoStepInto = true;
 				e.Continue = true;
@@ -423,7 +423,7 @@ namespace Mono.Debugging.Win32
 
 			BreakEventInfo binfo;
 			BreakEvent breakEvent = null;
-			if (breakpoints.TryGetValue (e.Breakpoint, out binfo)) {        
+			if (breakpoints.TryGetValue (e.Breakpoint, out binfo)) {
 				e.Continue = true;
 				Breakpoint bp = (Breakpoint)binfo.BreakEvent;
 				breakEvent = bp;
@@ -445,7 +445,7 @@ namespace Mono.Debugging.Win32
 				}
 
 				if ((bp.HitAction & HitAction.CustomAction) != HitAction.None) {
-						// If custom action returns true, execution must continue
+					// If custom action returns true, execution must continue
 					if (binfo.RunCustomBreakpointAction (bp.CustomActionId))
 						return;
 				}
@@ -700,12 +700,12 @@ namespace Mono.Debugging.Win32
 
 		void OnCreateProcess (object sender, CorProcessEventArgs e)
 		{
-		  if (!attaching) {
-		    // Required to avoid the jit to get rid of variables too early
-        // not allowed in attach mode
-		    e.Process.DesiredNGENCompilerFlags = CorDebugJITCompilerFlags.CORDEBUG_JIT_DISABLE_OPTIMIZATION;
-		  }
-		  e.Process.EnableLogMessages (true);
+			if (!attaching) {
+				// Required to avoid the jit to get rid of variables too early
+				// not allowed in attach mode
+				e.Process.DesiredNGENCompilerFlags = CorDebugJITCompilerFlags.CORDEBUG_JIT_DISABLE_OPTIMIZATION;
+			}
+			e.Process.EnableLogMessages (true);
 			e.Continue = true;
 		}
 
@@ -720,7 +720,7 @@ namespace Mono.Debugging.Win32
 			OnDebuggerOutput (false, string.Format ("Loaded Assembly '{0}'\n", e.Assembly.Name));
 			e.Continue = true;
 		}
-		
+
 		void OnException2 (object sender, CorException2EventArgs e)
 		{
 			lock (debugLock) {
@@ -729,9 +729,9 @@ namespace Mono.Debugging.Win32
 					return;
 				}
 			}
-			
+
 			TargetEventArgs args = null;
-			
+
 			switch (e.EventType) {
 				case CorDebugExceptionCallbackType.DEBUG_EXCEPTION_FIRST_CHANCE:
 					if (!this.Options.ProjectAssembliesOnly && IsCatchpoint (e))
@@ -747,7 +747,7 @@ namespace Mono.Debugging.Win32
 					args = new TargetEventArgs (TargetEventType.UnhandledException);
 					break;
 			}
-			
+
 			if (args != null) {
 				OnStopped ();
 				e.Continue = false;
@@ -756,11 +756,11 @@ namespace Mono.Debugging.Win32
 					stepper.Deactivate ();
 				autoStepInto = false;
 				SetActiveThread (e.Thread);
-				
+
 				args.Process = GetProcess (process);
 				args.Thread = GetThread (e.Thread);
 				args.Backtrace = new Backtrace (new CorBacktrace (e.Thread, this));
-				OnTargetEvent (args);	
+				OnTargetEvent (args);
 			}
 		}
 
@@ -795,7 +795,7 @@ namespace Mono.Debugging.Win32
 					return true;
 				}
 			}
-			
+
 			return false;
 		}
 
@@ -940,7 +940,7 @@ namespace Mono.Debugging.Win32
 				return corModules;
 			}
 		}
-		
+
 		internal CorHandleValue GetHandle (CorValue val)
 		{
 			CorHandleValue handleVal = null;
@@ -953,7 +953,7 @@ namespace Mono.Debugging.Win32
 					CorHeapValue heapVal = refVal.Dereference ().CastToHeapValue ();
 					handleVal = heapVal.CreateHandle (CorDebugHandleType.HANDLE_STRONG);
 				}
-				handles.Add (val.Address, handleVal);	
+				handles.Add (val.Address, handleVal);
 			}
 			return handleVal;
 		}
@@ -990,54 +990,91 @@ namespace Mono.Debugging.Win32
 							binfo.SetStatus (BreakEventStatus.Invalid, string.Format("Invalid line {0}", bp.Line));
 							return binfo;
 						}
-						ISymbolMethod met = null;
+						ISymbolMethod[] methods = null;
 						if (doc.ModuleInfo.Reader is ISymbolReader2) {
-							var methods = ((ISymbolReader2)doc.ModuleInfo.Reader).GetMethodsFromDocumentPosition (doc.Document, line, 0);
-							if (methods != null && methods.Any ()) {
-								if (methods.Count () == 1) {
-									met = methods [0];
-								} else {
-									int deepest = -1;
-									foreach (var method in methods) {
-										var firstSequence = method.GetSequencePoints ().FirstOrDefault ((sp) => sp.StartLine != 0xfeefee);
-										if (firstSequence != null && firstSequence.StartLine >= deepest) {
-											deepest = firstSequence.StartLine;
-											met = method;
-										}
-									}
-								}
-							}
+							methods = ((ISymbolReader2)doc.ModuleInfo.Reader).GetMethodsFromDocumentPosition (doc.Document, line, 0);
 						}
-						if (met == null) {
-							met = doc.ModuleInfo.Reader.GetMethodFromDocumentPosition (doc.Document, line, 0);
+						if (methods == null || methods.Length == 0) {
+							var met = doc.ModuleInfo.Reader.GetMethodFromDocumentPosition (doc.Document, line, 0);
+							if (met != null)
+								methods = new ISymbolMethod[] {met};
 						}
-						if (met == null) {
+
+						if (methods == null || methods.Length == 0) {
 							binfo.SetStatus (BreakEventStatus.Invalid, "Unable to resolve method at position");
 							return binfo;
 						}
 
-						int offset = -1;
-						int firstSpInLine = -1;
-						foreach (SequencePoint sp in met.GetSequencePoints ()) {
-							if (sp.IsInside (doc.Document.URL, line, bp.Column)) {
-								offset = sp.Offset;
-								break;
-							} else if (firstSpInLine == -1
-									   && sp.StartLine == line
-									   && sp.Document.URL.Equals (doc.Document.URL, StringComparison.OrdinalIgnoreCase)) {
-								firstSpInLine = sp.Offset;
+						ISymbolMethod bestMethod = null;
+						ISymbolMethod bestLeftMethod = null;
+						ISymbolMethod bestRightMethod = null;
+
+						SequencePoint bestSp = null;
+						SequencePoint bestLeftSp = null;
+						SequencePoint bestRightSp = null;
+
+						foreach (var met in methods) {
+							foreach (SequencePoint sp in met.GetSequencePoints ()) {
+								if (sp.IsInside (doc.Document.URL, line, bp.Column)) {	//breakpoint is inside current sequence point
+									if (bestSp == null || bestSp.IsInside (doc.Document.URL, sp.StartLine, sp.StartColumn)) {	//and sp is inside of current candidate
+										bestSp = sp;
+										bestMethod = met;
+										break;
+									}
+								} else if (sp.StartLine == line
+								           && sp.Document.URL.Equals (doc.Document.URL, StringComparison.OrdinalIgnoreCase)
+								           && sp.StartColumn <= bp.Column) {	//breakpoint is on the same line and on the right side of sp
+									if (bestLeftSp == null
+									    || bestLeftSp.EndColumn < sp.EndColumn) {
+										bestLeftSp = sp;
+										bestLeftMethod = met;
+									}
+								} else if (sp.StartLine >= line
+								           && sp.Document.URL.Equals (doc.Document.URL, StringComparison.OrdinalIgnoreCase)) {	//sp is after bp
+									if (bestRightSp == null
+									    || bestRightSp.StartLine > sp.StartLine
+									    || (bestRightSp.StartLine == sp.StartLine && bestRightSp.StartColumn > sp.StartColumn)) { //and current candidate is on the right side of it
+										bestRightSp = sp;
+										bestRightMethod = met;
+									}
+								}
 							}
 						}
-						if (offset == -1) {//No exact match? Use first match in that line
-							offset = firstSpInLine;
+
+						SequencePoint bestSameLineSp;
+						ISymbolMethod bestSameLineMethod;
+
+						if (bestRightSp != null
+						    && (bestLeftSp == null
+						        || bestRightSp.StartLine > line)) {
+							bestSameLineSp = bestRightSp;
+							bestSameLineMethod = bestRightMethod;
 						}
-						if (offset == -1) {
+						else {
+							bestSameLineSp = bestLeftSp;
+							bestSameLineMethod = bestLeftMethod;
+						}
+
+						if (bestSameLineSp != null) {
+							if (bestSp == null) {
+								bestSp = bestSameLineSp;
+								bestMethod = bestSameLineMethod;
+							}
+							else {
+								if (bp.Line != bestSp.StartLine || bestSp.StartColumn != bp.Column) {
+									bestSp = bestSameLineSp;
+									bestMethod = bestSameLineMethod;
+								}
+							}
+						}
+
+						if (bestSp == null || bestMethod == null) {
 							binfo.SetStatus (BreakEventStatus.Invalid, "Unable to calculate an offset in IL code");
 							return binfo;
 						}
 
-						CorFunction func = doc.ModuleInfo.Module.GetFunctionFromToken (met.Token.GetToken ());
-						CorFunctionBreakpoint corBp = func.ILCode.CreateBreakpoint (offset);
+						CorFunction func = doc.ModuleInfo.Module.GetFunctionFromToken (bestMethod.Token.GetToken ());
+						CorFunctionBreakpoint corBp = func.ILCode.CreateBreakpoint (bestSp.Offset);
 						corBp.Activate (bp.Enabled);
 						breakpoints [corBp] = binfo;
 
@@ -1153,7 +1190,7 @@ namespace Mono.Debugging.Win32
 		{
 			if (terminated)
 				return;
-			
+
 			if (bi.Status != BreakEventStatus.Bound || bi.Handle == null)
 				return;
 
@@ -1188,7 +1225,7 @@ namespace Mono.Debugging.Win32
 			if (stepper != null && stepper.IsActive ()) {
 				stepper.Deactivate ();
 			}
-			stepper = activeThread.CreateStepper (); 
+			stepper = activeThread.CreateStepper ();
 			stepper.SetUnmappedStopMask (CorDebugUnmappedStop.STOP_NONE);
 			stepper.SetJmcStatus (true);
 		}
@@ -1250,14 +1287,14 @@ namespace Mono.Debugging.Win32
 			CorValue exception = null;
 			CorEval eval = ctx.Eval;
 
-		    DebugEventHandler<CorEvalEventArgs> completeHandler = delegate (object o, CorEvalEventArgs eargs) {
+			DebugEventHandler<CorEvalEventArgs> completeHandler = delegate (object o, CorEvalEventArgs eargs) {
 				OnEndEvaluating ();
 				mc.DoneEvent.Set ();
 				eargs.Continue = false;
 			};
 
-            DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
-            {
+			DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
+			{
 				OnEndEvaluating ();
 				exception = eargs.Eval.Result;
 				mc.DoneEvent.Set ();
@@ -1335,8 +1372,8 @@ namespace Mono.Debugging.Win32
 				eargs.Continue = false;
 			};
 
-            DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
-            {
+			DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
+			{
 				OnEndEvaluating ();
 				result = eargs.Eval.Result;
 				doneEvent.Set ();
@@ -1368,7 +1405,7 @@ namespace Mono.Debugging.Win32
 			ManualResetEvent doneEvent = new ManualResetEvent (false);
 			CorValue result = null;
 
-            DebugEventHandler<CorEvalEventArgs> completeHandler = delegate(object o, CorEvalEventArgs eargs)
+			DebugEventHandler<CorEvalEventArgs> completeHandler = delegate(object o, CorEvalEventArgs eargs)
 			{
 				OnEndEvaluating ();
 				result = eargs.Eval.Result;
@@ -1376,7 +1413,7 @@ namespace Mono.Debugging.Win32
 				eargs.Continue = false;
 			};
 
-            DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
+			DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
 			{
 				OnEndEvaluating ();
 				result = eargs.Eval.Result;
@@ -1422,7 +1459,7 @@ namespace Mono.Debugging.Win32
 				}
 			}
 		}
-		
+
 		void ClearHandles ( )
 		{
 			foreach (CorHandleValue handle in handles.Values) {
@@ -1461,7 +1498,7 @@ namespace Mono.Debugging.Win32
 					catch {
 						loc = "<Unknown>";
 					}
-					
+
 					info = new ThreadInfo (thread.Process.Id, thread.Id, GetThreadName (thread), loc);
 					threads[thread.Id] = info;
 				}
@@ -1486,37 +1523,37 @@ namespace Mono.Debugging.Win32
 		string GetThreadName (CorThread thread)
 		{
 			// From http://social.msdn.microsoft.com/Forums/en/netfxtoolsdev/thread/461326fe-88bd-4a6b-82a9-1a66b8e65116
-		    try 
-		    { 
-		        CorReferenceValue refVal = thread.ThreadVariable.CastToReferenceValue(); 
-		        if (refVal.IsNull) 
-		            return string.Empty; 
-		        
-		        CorObjectValue val = refVal.Dereference().CastToObjectValue(); 
-		        if (val != null) 
-		        { 
+			try
+			{
+				CorReferenceValue refVal = thread.ThreadVariable.CastToReferenceValue();
+				if (refVal.IsNull)
+					return string.Empty;
+
+				CorObjectValue val = refVal.Dereference().CastToObjectValue();
+				if (val != null)
+				{
 					Type classType = val.ExactType.GetTypeInfo (this);
-		            // Loop through all private instance fields in the thread class 
-		            foreach (FieldInfo fi in classType.GetFields (BindingFlags.NonPublic | BindingFlags.Instance))
-		            { 
-		                if (fi.Name == "m_Name")
+					// Loop through all private instance fields in the thread class
+					foreach (FieldInfo fi in classType.GetFields (BindingFlags.NonPublic | BindingFlags.Instance))
+					{
+						if (fi.Name == "m_Name")
 						{
-		                        CorReferenceValue fieldValue = val.GetFieldValue(val.Class, fi.MetadataToken).CastToReferenceValue(); 
-							
-								if (fieldValue.IsNull)
-									return string.Empty;
-								else
-									return fieldValue.Dereference().CastToStringValue().String;
-		                } 
-		            } 
-		        } 
-		    } catch (Exception) {
+							CorReferenceValue fieldValue = val.GetFieldValue(val.Class, fi.MetadataToken).CastToReferenceValue();
+
+							if (fieldValue.IsNull)
+								return string.Empty;
+							else
+								return fieldValue.Dereference().CastToStringValue().String;
+						}
+					}
+				}
+			} catch (Exception) {
 				// Ignore
 			}
-			
+
 			return string.Empty;
 		}
-		
+
 		string EvaluateTrace (CorThread thread, string exp)
 		{
 			StringBuilder sb = new StringBuilder ();
@@ -1542,7 +1579,7 @@ namespace Mono.Debugging.Win32
 			sb.Append (exp.Substring (last, exp.Length - last));
 			return sb.ToString ();
 		}
-		
+
 		string EvaluateExpression (CorThread thread, string exp)
 		{
 			try {
@@ -1621,6 +1658,8 @@ namespace Mono.Debugging.Win32
 				}
 				try {
 					frame.SetIP (offset);
+					OnStopped ();
+					RaiseStopEvent ();
 				} catch {
 					throw new NotSupportedException ();
 				}
@@ -1742,7 +1781,7 @@ namespace Mono.Debugging.Win32
 				thisVal.IsValid = false;
 				return;
 			}
-				
+
 			CorReferenceValue s = thisVal.Val.CastToReferenceValue ();
 			if (s != null) {
 				CorReferenceValue v = val.Val.CastToReferenceValue ();
