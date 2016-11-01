@@ -606,10 +606,10 @@ namespace Mono.Debugging.Win32
 					}
 				}
 				catch (COMException ex) {
-					if (Enum.IsDefined (typeof(PdbHResult), ex.ErrorCode)) {
-						var pdbHResult = (PdbHResult)ex.ErrorCode;
-						if (pdbHResult != PdbHResult.E_PDB_OK) {
-							OnDebuggerOutput (false, string.Format ("Failed to load pdb for assembly {0}. Error code {1}(0x{2:X})\n", file, pdbHResult, ex.ErrorCode));
+					var hResult = ex.ToHResult<PdbHResult> ();
+					if (hResult != null) {
+						if (hResult != PdbHResult.E_PDB_OK) {
+							OnDebuggerOutput (false, string.Format ("Failed to load pdb for assembly {0}. Error code {1}(0x{2:X})\n", file, hResult, ex.ErrorCode));
 						}
 					}
 					else {
@@ -1178,8 +1178,8 @@ namespace Mono.Debugging.Win32
 
 		private static void HandleBreakpointException (BreakEventInfo binfo, COMException e)
 		{
-			if (Enum.IsDefined (typeof(HResult), e.ErrorCode)) {
-				var code = (HResult) e.ErrorCode;
+			var code = e.ToHResult<HResult> ();
+			if (code != null) {
 				switch (code) {
 					case HResult.CORDBG_E_UNABLE_TO_SET_BREAKPOINT:
 						binfo.SetStatus (BreakEventStatus.Invalid, "Invalid breakpoint position");
@@ -1424,7 +1424,12 @@ namespace Mono.Debugging.Win32
 				ObjectAdapter.AsyncExecute (mc, ctx.Options.EvaluationTimeout);
 			}
 			catch (COMException ex) {
-				throw new EvaluatorException (ex.Message);
+				// eval exception is a 'good' exception that should be shown in value box
+				// all other exceptions must be thrown to error log
+				var evalException = TryConvertToEvalException (ex);
+				if (evalException != null)
+					throw evalException;
+				throw;
 			}
 			finally {
 				process.OnEvalComplete -= completeHandler;
@@ -1493,15 +1498,42 @@ namespace Mono.Debugging.Win32
 					return null;
 				}
 			}
-			catch (Exception ex) {
-				DebuggerLoggingService.LogError ("Exception during evaluation attempt", ex);
-				return null;
+			catch (COMException ex) {
+				var evalException = TryConvertToEvalException (ex);
+				// eval exception is a 'good' exception that should be shown in value box
+				// all other exceptions must be thrown to error log
+				if (evalException != null)
+					throw evalException;
+				throw;
 			}
 			finally {
 				process.OnEvalComplete -= completeHandler;
 				process.OnEvalException -= exceptionHandler;
 				OnEndEvaluating ();
 			}
+		}
+
+		private static EvaluatorException TryConvertToEvalException (COMException ex)
+		{
+			var hResult = ex.ToHResult<HResult> ();
+			string message = null;
+			switch (hResult) {
+				case HResult.CORDBG_E_ILLEGAL_AT_GC_UNSAFE_POINT:
+					message = "The thread is not at a GC-safe point";
+					break;
+				case HResult.CORDBG_E_ILLEGAL_IN_PROLOG:
+					message = "The thread is in the prolog";
+					break;
+				case HResult.CORDBG_E_ILLEGAL_IN_NATIVE_CODE:
+					message = "The thread is in native code";
+					break;
+				case HResult.CORDBG_E_ILLEGAL_IN_OPTIMIZED_CODE:
+					message = "The thread is in optimized code";
+					break;
+			}
+			if (message != null)
+				return new EvaluatorException ("Evaluation is not allowed: {0}", message);
+			return null;
 		}
 
 		public CorValue NewString (CorEvaluationContext ctx, string value)
