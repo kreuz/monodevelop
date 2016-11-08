@@ -1,19 +1,18 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Samples.Debugging.CorDebug;
 using Microsoft.Samples.Debugging.CorDebug.NativeApi;
 using Mono.Debugging.Evaluation;
 
 namespace Mono.Debugging.Win32
 {
-	class CorMethodCall: AsyncOperation
+	class CorMethodCall: AsyncOperationBase
 	{
 		readonly CorEvaluationContext context;
 		readonly CorFunction function;
 		readonly CorType[] typeArgs;
 		readonly CorValue[] args;
-
-		public ManualResetEvent DoneEvent = new ManualResetEvent (false);
 
 		readonly CorEval eval;
 
@@ -42,13 +41,13 @@ namespace Mono.Debugging.Win32
 
 		void DoProcessEvalFinished (CorEvalEventArgs evalArgs)
 		{
-			UnSubcribeOnEvals ();
-
+			if (evalArgs.Eval != eval)
+				return;
 			context.Session.OnEndEvaluating ();
 			// TODO: check that evalArgs.Eval == this.eval
 			//exception = eargs.Eval.Result;
-			DoneEvent.Set ();
 			evalArgs.Continue = false;
+			tcs.SetResult (eval.Result);
 		}
 
 		void SubscribeOnEvals ()
@@ -76,10 +75,13 @@ namespace Mono.Debugging.Win32
 			}
 		}
 
-		public override void Invoke ( )
+		private readonly TaskCompletionSource<CorValue> tcs = new TaskCompletionSource<CorValue> ();
+
+		protected override Task InvokeAsyncImpl (CancellationToken token)
 		{
 			SubscribeOnEvals ();
 
+			//try catch
 			if (function.GetMethodInfo (context.Session).Name == ".ctor")
 				eval.NewParameterizedObject (function, typeArgs, args);
 			else
@@ -88,28 +90,16 @@ namespace Mono.Debugging.Win32
 			context.Session.ClearEvalStatus ();
 			context.Session.OnStartEvaluating ();
 			context.Session.Process.Continue (false);
+			Task =  tcs.Task;
+			return Task.ContinueWith (_ => { UnSubcribeOnEvals (); }, token);
 		}
 
-		public override void Abort ( )
+
+		protected override void CancelImpl ( )
 		{
-			UnSubcribeOnEvals ();
 			eval.Abort ();
 		}
 
-		public override void Shutdown ( )
-		{
-			try {
-				Abort ();
-			}
-			catch (Exception e) {
-			}
-			DoneEvent.Set ();
-		}
-
-		public override bool WaitForCompleted (int timeout)
-		{
-			return DoneEvent.WaitOne (timeout, false);
-		}
 
 		public CorValue Result
 		{
