@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.SymbolStore;
 using System.IO;
@@ -46,7 +47,9 @@ namespace Mono.Debugging.Win32
 		Dictionary<int, ThreadInfo> threads = new Dictionary<int,ThreadInfo> ();
 		readonly Dictionary<CorBreakpoint, BreakEventInfo> breakpoints = new Dictionary<CorBreakpoint, BreakEventInfo> ();
 		readonly Dictionary<long, CorHandleValue> handles = new Dictionary<long, CorHandleValue>();
-		
+
+		readonly BlockingCollection<Action> helperOperationsQueue = new BlockingCollection<Action>(new ConcurrentQueue<Action>());
+		readonly CancellationTokenSource helperOperationsCancellationTokenSource = new CancellationTokenSource ();
 
 		public CorObjectAdaptor ObjectAdapter = new CorObjectAdaptor();
 
@@ -73,6 +76,29 @@ namespace Mono.Debugging.Win32
 		public CorDebuggerSession(char[] badPathChars)
 		{
 			this.badPathChars = badPathChars;
+			var cancellationToken = helperOperationsCancellationTokenSource.Token;
+			new Thread (() => {
+				try {
+					while (!cancellationToken.IsCancellationRequested) {
+						var action = helperOperationsQueue.Take(cancellationToken);
+						try {
+							action ();
+						}
+						catch (Exception e) {
+							DebuggerLoggingService.LogError ("Exception on processing helper thread action", e);
+						}
+					}
+
+				}
+				catch (Exception e) {
+					if (e is OperationCanceledException || e is ObjectDisposedException) {
+						DebuggerLoggingService.LogMessage ("Helper thread was gracefully interrupted");
+					}
+					else {
+						DebuggerLoggingService.LogError ("Unhandled exception in helper thread. Helper thread is terminated", e);
+					}
+				}
+			}) {Name = "CorDebug helper thread "}.Start();
 		}
 
 		public new IDebuggerSessionFrontend Frontend {
@@ -97,6 +123,8 @@ namespace Mono.Debugging.Win32
 				TerminateDebugger ();
 			});
 			ObjectAdapter.Dispose();
+			helperOperationsCancellationTokenSource.Dispose ();
+			helperOperationsQueue.Dispose ();
 
 			base.Dispose ();
 
@@ -128,6 +156,11 @@ namespace Mono.Debugging.Win32
 			});
 		}
 
+		private void QueueToHelperThread (Action action)
+		{
+			helperOperationsQueue.Add (action);
+		}
+
 		void TerminateDebugger ()
 		{
 			lock (terminateLock) {
@@ -139,24 +172,24 @@ namespace Mono.Debugging.Win32
 				if (process != null) {
 					// Process already running. Stop it. In the ProcessExited event the
 					// debugger engine will be terminated
-				  try {
-				    process.Stop (4000);
-				    if (attaching) {
-				      process.Detach ();
-				    }
-				    else {
-				      process.Terminate (1);
-				    }
-				  }
-				  catch (COMException e) {
-				    // process was terminated, but debugger operation thread doesn't call ProcessExit callback at the time,
-				    // so we just think that the process is alive but that's wrong.
-				    // This may happen when e.g. when target process exited and Dispose was called at the same time
-				    // rethrow the exception in other case
-				    if (e.ErrorCode != (int) HResult.CORDBG_E_PROCESS_TERMINATED) {
-				      throw;
-				    }
-				  }
+					try {
+						process.Stop (4000);
+						if (attaching) {
+							process.Detach ();
+						}
+						else {
+							process.Terminate (1);
+						}
+					}
+					catch (COMException e) {
+						// process was terminated, but debugger operation thread doesn't call ProcessExit callback at the time,
+						// so we just think that the process is alive but that's wrong.
+						// This may happen when e.g. when target process exited and Dispose was called at the same time
+						// rethrow the exception in other case
+						if (e.ErrorCode != (int) HResult.CORDBG_E_PROCESS_TERMINATED) {
+							throw;
+						}
+					}
 				}
 			}
 		}
@@ -189,7 +222,7 @@ namespace Mono.Debugging.Win32
 				int flags = 0;
 				if (!startInfo.UseExternalConsole) {
 					flags = (int)CreationFlags.CREATE_NO_WINDOW;
-						flags |= DebuggerExtensions.CREATE_REDIRECT_STD;
+					flags |= DebuggerExtensions.CREATE_REDIRECT_STD;
 				}
 				else {
 					flags |= (int) CreationFlags.CREATE_NEW_CONSOLE;
@@ -276,9 +309,9 @@ namespace Mono.Debugging.Win32
 			lock (threads) {
 				threads.Clear ();
 			}
-		  lock (processes) {
-		    processes.Clear();
-		  }
+			lock (processes) {
+				processes.Clear();
+			}
 		}
 
 		void OnBreak (object sender, CorThreadEventArgs e)
@@ -326,9 +359,9 @@ namespace Mono.Debugging.Win32
 			string name = method.Name;
 
 			return method.IsSpecialName &&
-			(name.StartsWith ("get_", StringComparison.Ordinal) ||
-			name.StartsWith ("set_", StringComparison.Ordinal) ||
-			name.StartsWith ("op_", StringComparison.Ordinal));
+			       (name.StartsWith ("get_", StringComparison.Ordinal) ||
+			        name.StartsWith ("set_", StringComparison.Ordinal) ||
+			        name.StartsWith ("op_", StringComparison.Ordinal));
 		}
 
 		static bool IsCompilerGenerated (MethodInfo method)
@@ -383,7 +416,7 @@ namespace Mono.Debugging.Win32
 
 			if ((Options.StepOverPropertiesAndOperators || IsCompilerGenerated(e.Thread.ActiveFrame.Function.GetMethodInfo (this))) &&
 			    IsPropertyOrOperatorMethod (e.Thread.ActiveFrame.Function.GetMethodInfo (this)) &&
-				e.StepReason == CorDebugStepReason.STEP_CALL) {
+			    e.StepReason == CorDebugStepReason.STEP_CALL) {
 				stepper.StepOut ();
 				autoStepInto = true;
 				e.Continue = true;
@@ -428,62 +461,80 @@ namespace Mono.Debugging.Win32
 				}
 			}
 
-			BreakEventInfo binfo;
-			BreakEvent breakEvent = null;
-			if (breakpoints.TryGetValue (e.Breakpoint, out binfo)) {        
-				e.Continue = true;
-				Breakpoint bp = (Breakpoint)binfo.BreakEvent;
-				breakEvent = bp;
+			// we have to stop an execution and enqueue breakpoint calculations on another thread to release debugger event thread for further events
+			// we can't perform any evaluations inside this handler, because the debugger thread is busy and we won't get evaluation events there
+			e.Continue = false;
 
-				binfo.IncrementHitCount();
-				if (!binfo.HitCountReached)
-					return;
+			QueueToHelperThread (() => {
+				BreakEventInfo binfo;
+				BreakEvent breakEvent = null;
+				if (e.Controller.IsRunning ())
+					throw new InvalidOperationException ("Debuggee isn't stopped to perform breakpoint calculations");
 
-				if (!string.IsNullOrEmpty (bp.ConditionExpression)) {
-					string res = EvaluateExpression (e.Thread, bp.ConditionExpression);
-					if (bp.BreakIfConditionChanges) {
-						if (res == bp.LastConditionValue)
-							return;
-						bp.LastConditionValue = res;
-					} else {
-						if (res != null && res.ToLower () == "false")
-							return;
+				var shouldContinue = false;
+				if (breakpoints.TryGetValue (e.Breakpoint, out binfo)) {
+					breakEvent = (Breakpoint) binfo.BreakEvent;
+					try {
+						shouldContinue = ShouldContinueOnBreakpoint (e.Thread, binfo);
+					}
+					catch (Exception ex) {
+						DebuggerLoggingService.LogError ("ShouldContinueOnBreakpoint() thrown an exception", ex);
 					}
 				}
 
-				if ((bp.HitAction & HitAction.CustomAction) != HitAction.None) {
-						// If custom action returns true, execution must continue
-					if (binfo.RunCustomBreakpointAction (bp.CustomActionId))
-						return;
-				}
-
-				if ((bp.HitAction & HitAction.PrintExpression) != HitAction.None) {
-					string exp = EvaluateTrace (e.Thread, bp.TraceExpression);
-					binfo.UpdateLastTraceValue (exp);
-				}
-
-				if ((bp.HitAction & HitAction.Break) == HitAction.None)
+				if (shouldContinue || e.AppDomain.Process.HasQueuedCallbacks (e.Thread)) {
+					e.Controller.SetAllThreadsDebugState (CorDebugThreadState.THREAD_RUN, null);
+					e.Controller.Continue (false);
 					return;
+				}
+
+				OnStopped ();
+				// If a breakpoint is hit while stepping, cancel the stepping operation
+				if (stepper != null && stepper.IsActive ())
+					stepper.Deactivate ();
+				autoStepInto = false;
+				SetActiveThread (e.Thread);
+				var args = new TargetEventArgs (TargetEventType.TargetHitBreakpoint) {
+					Process = GetProcess (process),
+					Thread = GetThread (e.Thread),
+					Backtrace = new Backtrace (new CorBacktrace (e.Thread, this)),
+					BreakEvent = breakEvent
+				};
+				OnTargetEvent (args);
+			});
+		}
+
+		private bool ShouldContinueOnBreakpoint (CorThread thread, BreakEventInfo binfo)
+		{
+			var bp = (Breakpoint) binfo.BreakEvent;
+			binfo.IncrementHitCount();
+			if (!binfo.HitCountReached)
+				return true;
+
+			if (!string.IsNullOrEmpty (bp.ConditionExpression)) {
+				string res = EvaluateExpression (thread, bp.ConditionExpression);
+				if (bp.BreakIfConditionChanges) {
+					if (res == bp.LastConditionValue)
+						return true;
+					bp.LastConditionValue = res;
+				} else {
+					if (res != null && res.ToLower () != "true")
+						return true;
+				}
 			}
 
-			if (e.AppDomain.Process.HasQueuedCallbacks (e.Thread)) {
-				e.Continue = true;
-				return;
+			if ((bp.HitAction & HitAction.CustomAction) != HitAction.None) {
+				// If custom action returns true, execution must continue
+				if (binfo.RunCustomBreakpointAction (bp.CustomActionId))
+					return true;
 			}
 
-			OnStopped ();
-			e.Continue = false;
-			// If a breakpoint is hit while stepping, cancel the stepping operation
-			if (stepper != null && stepper.IsActive ())
-				stepper.Deactivate ();
-			autoStepInto = false;
-			SetActiveThread (e.Thread);
-			TargetEventArgs args = new TargetEventArgs (TargetEventType.TargetHitBreakpoint);
-			args.Process = GetProcess (process);
-			args.Thread = GetThread (e.Thread);
-			args.Backtrace = new Backtrace (new CorBacktrace (e.Thread, this));
-			args.BreakEvent = breakEvent;
-			OnTargetEvent (args);
+			if ((bp.HitAction & HitAction.PrintExpression) != HitAction.None) {
+				string exp = EvaluateTrace (thread, bp.TraceExpression);
+				binfo.UpdateLastTraceValue (exp);
+			}
+
+			return (bp.HitAction & HitAction.Break) == HitAction.None;
 		}
 
 		void OnDebuggerError (object sender, CorDebuggerErrorEventArgs e)
@@ -539,7 +590,7 @@ namespace Mono.Debugging.Win32
 			}
 
 			var currentDomain = e.AppDomain;
-			OnDebuggerOutput (false, String.Format("Loading module {0} in application domain {1}:{2}", currentModule.Name, currentDomain.Id, currentDomain.Name));
+			OnDebuggerOutput (false, String.Format("Loading module {0} in application domain {1}:{2}\n", currentModule.Name, currentDomain.Id, currentDomain.Name));
 			string file = currentModule.Assembly.Name;
 			var newDocuments = new Dictionary<string, DocInfo> ();
 			ISymbolReader reader = null;
@@ -548,7 +599,7 @@ namespace Mono.Debugging.Win32
 					reader = symbolBinder.GetReaderForFile (mi.RawCOMObject, file, ".",
 						SymSearchPolicies.AllowOriginalPathAccess | SymSearchPolicies.AllowReferencePathAccess);
 					if (reader != null) {
-						OnDebuggerOutput (false, string.Format ("Symbols for module {0} loaded", file));
+						OnDebuggerOutput (false, string.Format ("Symbols for module {0} loaded\n", file));
 						foreach (ISymbolDocument doc in reader.GetDocuments ()) {
 							if (string.IsNullOrEmpty (doc.URL))
 								continue;
@@ -560,10 +611,10 @@ namespace Mono.Debugging.Win32
 					}
 				}
 				catch (COMException ex) {
-					if (Enum.IsDefined (typeof(PdbHResult), ex.ErrorCode)) {
-						var pdbHResult = (PdbHResult)ex.ErrorCode;
-						if (pdbHResult != PdbHResult.E_PDB_OK) {
-							OnDebuggerOutput (false, string.Format ("Failed to load pdb for assembly {0}. Error code {1}(0x{2:X})", file, pdbHResult, ex.ErrorCode));
+					var hResult = ex.ToHResult<PdbHResult> ();
+					if (hResult != null) {
+						if (hResult != PdbHResult.E_PDB_OK) {
+							OnDebuggerOutput (false, string.Format ("Failed to load pdb for assembly {0}. Error code {1}(0x{2:X})\n", file, hResult, ex.ErrorCode));
 						}
 					}
 					else {
@@ -594,7 +645,7 @@ namespace Mono.Debugging.Win32
 			lock (appDomainsLock) {
 				AppDomainInfo appDomainInfo;
 				if (!appDomains.TryGetValue (currentDomain.Id, out appDomainInfo)) {
-					OnDebuggerOutput (true, string.Format ("OnCreatedAppDomain was not fired for domain {0} (id {1})", currentDomain.Name, currentDomain.Id));
+				  DebuggerLoggingService.LogMessage ("OnCreatedAppDomain was not fired for domain {0} (id {1})\n", currentDomain.Name, currentDomain.Id);
 					appDomainInfo = new AppDomainInfo {
 						AppDomain = currentDomain,
 						Documents = new Dictionary<string, DocInfo> (StringComparer.InvariantCultureIgnoreCase),
@@ -604,8 +655,8 @@ namespace Mono.Debugging.Win32
 				}
 				var modules = appDomainInfo.Modules;
 				if (modules.ContainsKey (currentModule.Name)) {
-					OnDebuggerOutput (true, string.Format("Module {0} was already added for app domain {1} (id {2}). Replacing",
-						currentModule.Name, currentDomain.Name, currentDomain.Id));
+				  DebuggerLoggingService.LogMessage ("Module {0} was already added for app domain {1} (id {2}). Replacing\n",
+						currentModule.Name, currentDomain.Name, currentDomain.Id);
 				}
 				var newModuleInfo = new ModuleInfo {
 					Module = currentModule,
@@ -618,8 +669,8 @@ namespace Mono.Debugging.Win32
 					var documentFile = newDocument.Key;
 					var newDocInfo = newDocument.Value;
 					if (existingDocuments.ContainsKey (documentFile)) {
-						OnDebuggerOutput (true, string.Format("Document {0} was already added for module {1} in domain {2} (id {3}). Replacing",
-							documentFile, currentModule.Name, currentDomain.Name, currentDomain.Id));
+					  DebuggerLoggingService.LogMessage ("Document {0} was already added for module {1} in domain {2} (id {3}). Replacing\n",
+							documentFile, currentModule.Name, currentDomain.Name, currentDomain.Id);
 					}
 					newDocInfo.ModuleInfo = newModuleInfo;
 					existingDocuments[documentFile] = newDocInfo;
@@ -642,15 +693,14 @@ namespace Mono.Debugging.Win32
 			lock (appDomainsLock) {
 				AppDomainInfo appDomainInfo;
 				if (!appDomains.TryGetValue (currentDomain.Id, out appDomainInfo)) {
-					OnDebuggerOutput (true,
-						string.Format("Failed unload module {0} for app domain {1} (id {2}) because app domain was not found or already unloaded",
-							currentModule.Name, currentDomain.Name, currentDomain.Id));
+				  DebuggerLoggingService.LogMessage ("Failed unload module {0} for app domain {1} (id {2}) because app domain was not found or already unloaded\n",
+							currentModule.Name, currentDomain.Name, currentDomain.Id);
 					return;
 				}
 				ModuleInfo moi;
 				if (!appDomainInfo.Modules.TryGetValue (currentModule.Name, out moi)) {
-					OnDebuggerOutput (true, string.Format ("Failed unload module {0} for app domain {1} (id {2}) because the module was not found or already unloaded",
-						currentModule.Name, currentDomain.Name, currentDomain.Id));
+				  DebuggerLoggingService.LogMessage ("Failed unload module {0} for app domain {1} (id {2}) because the module was not found or already unloaded\n",
+						currentModule.Name, currentDomain.Name, currentDomain.Id);
 				}
 				else {
 					appDomainInfo.Modules.Remove (currentModule.Name);
@@ -684,12 +734,12 @@ namespace Mono.Debugging.Win32
 					};
 				}
 				else {
-					OnDebuggerOutput (true, string.Format("App domain {0} (id {1}) was already loaded", e.AppDomain.Name, appDomainId));
+					DebuggerLoggingService.LogMessage ("App domain {0} (id {1}) was already loaded", e.AppDomain.Name, appDomainId);
 				}
 			}
 			e.AppDomain.Attach();
 			e.Continue = true;
-			OnDebuggerOutput (false, string.Format("Loaded application domain '{0} (id {1})'", e.AppDomain.Name, appDomainId));
+			OnDebuggerOutput (false, string.Format("Loaded application domain '{0} (id {1})'\n", e.AppDomain.Name, appDomainId));
 		}
 
 		private void OnAppDomainExit (object sender, CorAppDomainEventArgs e)
@@ -697,23 +747,23 @@ namespace Mono.Debugging.Win32
 			var appDomainId = e.AppDomain.Id;
 			lock (appDomainsLock) {
 				if (!appDomains.Remove (appDomainId)) {
-					OnDebuggerOutput (true, string.Format ("Failed to unload app domain {0} (id {1}) because it's not found in map. Possibly alreade unloaded.", e.AppDomain.Name, appDomainId));
+				  DebuggerLoggingService.LogMessage ("Failed to unload app domain {0} (id {1}) because it's not found in map. Possibly already unloaded.", e.AppDomain.Name, appDomainId);
 				}
 			}
 			e.AppDomain.Detach ();
 			e.Continue = true;
-			OnDebuggerOutput (false, string.Format("Unloaded application domain '{0} (id {1})'", e.AppDomain.Name, appDomainId));
+			OnDebuggerOutput (false, string.Format("Unloaded application domain '{0} (id {1})'\n", e.AppDomain.Name, appDomainId));
 		}
 
 
 		void OnCreateProcess (object sender, CorProcessEventArgs e)
 		{
-		  if (!attaching) {
-		    // Required to avoid the jit to get rid of variables too early
-        // not allowed in attach mode
-		    e.Process.DesiredNGENCompilerFlags = CorDebugJITCompilerFlags.CORDEBUG_JIT_DISABLE_OPTIMIZATION;
-		  }
-		  e.Process.EnableLogMessages (true);
+			if (!attaching) {
+				// Required to avoid the jit to get rid of variables too early
+				// not allowed in attach mode
+				e.Process.DesiredNGENCompilerFlags = CorDebugJITCompilerFlags.CORDEBUG_JIT_DISABLE_OPTIMIZATION;
+			}
+			e.Process.EnableLogMessages (true);
 			e.Continue = true;
 		}
 
@@ -728,7 +778,7 @@ namespace Mono.Debugging.Win32
 			OnDebuggerOutput (false, string.Format ("Loaded Assembly '{0}'\n", e.Assembly.Name));
 			e.Continue = true;
 		}
-		
+
 		void OnException2 (object sender, CorException2EventArgs e)
 		{
 			lock (debugLock) {
@@ -739,7 +789,7 @@ namespace Mono.Debugging.Win32
 			}
 			
 			TargetEventArgs args = null;
-			
+
 			switch (e.EventType) {
 				case CorDebugExceptionCallbackType.DEBUG_EXCEPTION_FIRST_CHANCE:
 					if (!this.Options.ProjectAssembliesOnly && IsCatchpoint (e))
@@ -768,7 +818,7 @@ namespace Mono.Debugging.Win32
 				args.Process = GetProcess (process);
 				args.Thread = GetThread (e.Thread);
 				args.Backtrace = new Backtrace (new CorBacktrace (e.Thread, this));
-				OnTargetEvent (args);	
+				OnTargetEvent (args);
 			}
 		}
 
@@ -831,8 +881,14 @@ namespace Mono.Debugging.Win32
 			MtaThread.Run (delegate
 			{
 				CorBreakpoint bp = binfo.Handle as CorFunctionBreakpoint;
-				if (bp != null)
-					bp.Activate (enable);
+				if (bp != null) {
+					try {
+						bp.Activate (enable);
+					}
+					catch (COMException e) {
+						HandleBreakpointException (binfo, e);
+					}
+				}
 			});
 		}
 
@@ -842,6 +898,7 @@ namespace Mono.Debugging.Win32
 			{
 				TerminateDebugger ();
 			});
+			helperOperationsCancellationTokenSource.Cancel();
 		}
 
 		protected override void OnFinish ( )
@@ -998,59 +1055,101 @@ namespace Mono.Debugging.Win32
 							binfo.SetStatus (BreakEventStatus.Invalid, string.Format("Invalid line {0}", bp.Line));
 							return binfo;
 						}
-						ISymbolMethod met = null;
+						ISymbolMethod[] methods = null;
 						if (doc.ModuleInfo.Reader is ISymbolReader2) {
-							var methods = ((ISymbolReader2)doc.ModuleInfo.Reader).GetMethodsFromDocumentPosition (doc.Document, line, 0);
-							if (methods != null && methods.Any ()) {
-								if (methods.Count () == 1) {
-									met = methods [0];
-								} else {
-									int deepest = -1;
-									foreach (var method in methods) {
-										var firstSequence = method.GetSequencePoints ().FirstOrDefault ((sp) => sp.StartLine != 0xfeefee);
-										if (firstSequence != null && firstSequence.StartLine >= deepest) {
-											deepest = firstSequence.StartLine;
-											met = method;
-										}
-									}
-								}
-							}
+							methods = ((ISymbolReader2)doc.ModuleInfo.Reader).GetMethodsFromDocumentPosition (doc.Document, line, 0);
 						}
-						if (met == null) {
-							met = doc.ModuleInfo.Reader.GetMethodFromDocumentPosition (doc.Document, line, 0);
+						if (methods == null || methods.Length == 0) {
+							var met = doc.ModuleInfo.Reader.GetMethodFromDocumentPosition (doc.Document, line, 0);
+							if (met != null)
+								methods = new ISymbolMethod[] {met};
 						}
-						if (met == null) {
+
+						if (methods == null || methods.Length == 0) {
 							binfo.SetStatus (BreakEventStatus.Invalid, "Unable to resolve method at position");
 							return binfo;
 						}
 
-						int offset = -1;
-						int firstSpInLine = -1;
-						foreach (SequencePoint sp in met.GetSequencePoints ()) {
-							if (sp.IsInside (doc.Document.URL, line, bp.Column)) {
-								offset = sp.Offset;
-								break;
-							} else if (firstSpInLine == -1
-									   && sp.StartLine == line
-									   && sp.Document.URL.Equals (doc.Document.URL, StringComparison.OrdinalIgnoreCase)) {
-								firstSpInLine = sp.Offset;
+						ISymbolMethod bestMethod = null;
+						ISymbolMethod bestLeftMethod = null;
+						ISymbolMethod bestRightMethod = null;
+
+						SequencePoint bestSp = null;
+						SequencePoint bestLeftSp = null;
+						SequencePoint bestRightSp = null;
+
+						foreach (var met in methods) {
+							foreach (SequencePoint sp in met.GetSequencePoints ()) {
+								if (sp.IsInside (doc.Document.URL, line, bp.Column)) {	//breakpoint is inside current sequence point
+									if (bestSp == null || bestSp.IsInside (doc.Document.URL, sp.StartLine, sp.StartColumn)) {	//and sp is inside of current candidate
+										bestSp = sp;
+										bestMethod = met;
+										break;
+									}
+								} else if (sp.StartLine == line
+								           && sp.Document.URL.Equals (doc.Document.URL, StringComparison.OrdinalIgnoreCase)
+								           && sp.StartColumn <= bp.Column) {	//breakpoint is on the same line and on the right side of sp
+									if (bestLeftSp == null
+									    || bestLeftSp.EndColumn < sp.EndColumn) {
+										bestLeftSp = sp;
+										bestLeftMethod = met;
+									}
+								} else if (sp.StartLine >= line
+								           && sp.Document.URL.Equals (doc.Document.URL, StringComparison.OrdinalIgnoreCase)) {	//sp is after bp
+									if (bestRightSp == null
+									    || bestRightSp.StartLine > sp.StartLine
+									    || (bestRightSp.StartLine == sp.StartLine && bestRightSp.StartColumn > sp.StartColumn)) { //and current candidate is on the right side of it
+										bestRightSp = sp;
+										bestRightMethod = met;
+									}
+								}
 							}
 						}
-						if (offset == -1) {//No exact match? Use first match in that line
-							offset = firstSpInLine;
+
+						SequencePoint bestSameLineSp;
+						ISymbolMethod bestSameLineMethod;
+
+						if (bestRightSp != null
+						    && (bestLeftSp == null
+						        || bestRightSp.StartLine > line)) {
+							bestSameLineSp = bestRightSp;
+							bestSameLineMethod = bestRightMethod;
 						}
-						if (offset == -1) {
+						else {
+							bestSameLineSp = bestLeftSp;
+							bestSameLineMethod = bestLeftMethod;
+						}
+
+						if (bestSameLineSp != null) {
+							if (bestSp == null) {
+								bestSp = bestSameLineSp;
+								bestMethod = bestSameLineMethod;
+							}
+							else {
+								if (bp.Line != bestSp.StartLine || bestSp.StartColumn != bp.Column) {
+									bestSp = bestSameLineSp;
+									bestMethod = bestSameLineMethod;
+								}
+							}
+						}
+
+						if (bestSp == null || bestMethod == null) {
 							binfo.SetStatus (BreakEventStatus.Invalid, "Unable to calculate an offset in IL code");
 							return binfo;
 						}
 
-						CorFunction func = doc.ModuleInfo.Module.GetFunctionFromToken (met.Token.GetToken ());
-						CorFunctionBreakpoint corBp = func.ILCode.CreateBreakpoint (offset);
-						corBp.Activate (bp.Enabled);
-						breakpoints [corBp] = binfo;
+						CorFunction func = doc.ModuleInfo.Module.GetFunctionFromToken (bestMethod.Token.GetToken ());
 
-						binfo.Handle = corBp;
-						binfo.SetStatus (BreakEventStatus.Bound, null);
+						try {
+							CorFunctionBreakpoint corBp = func.ILCode.CreateBreakpoint (bestSp.Offset);
+							breakpoints[corBp] = binfo;
+							binfo.Handle = corBp;
+							corBp.Activate (bp.Enabled);
+							binfo.SetStatus (BreakEventStatus.Bound, null);
+						}
+						catch (COMException e) {
+							HandleBreakpointException (binfo, e);
+						}
 						return binfo;
 					}
 				}
@@ -1080,6 +1179,31 @@ namespace Mono.Debugging.Win32
 				binfo.SetStatus (BreakEventStatus.Invalid, null);
 				return binfo;
 			});
+		}
+
+		private static void HandleBreakpointException (BreakEventInfo binfo, COMException e)
+		{
+			var code = e.ToHResult<HResult> ();
+			if (code != null) {
+				switch (code) {
+					case HResult.CORDBG_E_UNABLE_TO_SET_BREAKPOINT:
+						binfo.SetStatus (BreakEventStatus.Invalid, "Invalid breakpoint position");
+						break;
+					case HResult.CORDBG_E_PROCESS_TERMINATED:
+						binfo.SetStatus (BreakEventStatus.BindError, "Process terminated");
+						break;
+					case HResult.CORDBG_E_CODE_NOT_AVAILABLE:
+						binfo.SetStatus (BreakEventStatus.BindError, "Module is not loaded");
+						break;
+					default:
+						binfo.SetStatus (BreakEventStatus.BindError, e.Message);
+						break;
+				}
+			}
+			else {
+				binfo.SetStatus (BreakEventStatus.BindError, e.Message);
+				DebuggerLoggingService.LogError ("Unknown exception when setting breakpoint", e);
+			}
 		}
 
 		protected override void OnNextInstruction ( )
@@ -1161,14 +1285,19 @@ namespace Mono.Debugging.Win32
 		{
 			if (terminated)
 				return;
-			
+
 			if (bi.Status != BreakEventStatus.Bound || bi.Handle == null)
 				return;
 
 			MtaThread.Run (delegate
 			{
 				CorFunctionBreakpoint corBp = (CorFunctionBreakpoint)bi.Handle;
-				corBp.Activate (false);
+				try {
+					corBp.Activate (false);
+				}
+				catch (COMException e) {
+					HandleBreakpointException (bi, e);
+				}
 			});
 		}
 
@@ -1196,7 +1325,7 @@ namespace Mono.Debugging.Win32
 			if (stepper != null && stepper.IsActive ()) {
 				stepper.Deactivate ();
 			}
-			stepper = activeThread.CreateStepper (); 
+			stepper = activeThread.CreateStepper ();
 			stepper.SetUnmappedStopMask (CorDebugUnmappedStop.STOP_NONE);
 			stepper.SetJmcStatus (true);
 		}
@@ -1262,7 +1391,12 @@ namespace Mono.Debugging.Win32
 				return result.Result;
 			}
 			catch (COMException ex) {
-				throw new EvaluatorException (ex.Message);
+				// eval exception is a 'good' exception that should be shown in value box
+				// all other exceptions must be thrown to error log
+				var evalException = TryConvertToEvalException (ex);
+				if (evalException != null)
+					throw evalException;
+				throw;
 			}
 
 //			if (methodCall.IsException) {
@@ -1286,31 +1420,32 @@ namespace Mono.Debugging.Win32
 			}
 		}
 
-		public CorValue NewString (CorEvaluationContext ctx, string value)
+		private CorValue NewSpecialObject (CorEvaluationContext ctx, Action<CorEval> createCall)
 		{
 			ManualResetEvent doneEvent = new ManualResetEvent (false);
 			CorValue result = null;
-
+			var eval = ctx.Eval;
 			DebugEventHandler<CorEvalEventArgs> completeHandler = delegate (object o, CorEvalEventArgs eargs) {
-				OnEndEvaluating ();
+				if (eargs.Eval != eval)
+					return;
 				result = eargs.Eval.Result;
 				doneEvent.Set ();
 				eargs.Continue = false;
 			};
 
-            DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
-            {
-				OnEndEvaluating ();
+			DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
+			{
+				if (eargs.Eval != eval)
+					return;
 				result = eargs.Eval.Result;
 				doneEvent.Set ();
 				eargs.Continue = false;
 			};
+			process.OnEvalComplete += completeHandler;
+			process.OnEvalException += exceptionHandler;
 
 			try {
-				process.OnEvalComplete += completeHandler;
-				process.OnEvalException += exceptionHandler;
-
-				ctx.Eval.NewString (value);
+				createCall (eval);
 				process.SetAllThreadsDebugState (CorDebugThreadState.THREAD_SUSPEND, ctx.Thread);
 				OnStartEvaluating ();
 				ClearEvalStatus ();
@@ -1318,54 +1453,58 @@ namespace Mono.Debugging.Win32
 
 				if (doneEvent.WaitOne (ctx.Options.EvaluationTimeout, false))
 					return result;
-				else
+				else {
+					eval.Abort ();
 					return null;
-			} finally {
-				process.OnEvalComplete -= completeHandler;
-				process.OnEvalException -= exceptionHandler;
+				}
 			}
-		}
-
-		public CorValue NewArray (CorEvaluationContext ctx, CorType elemType, int size)
-		{
-			ManualResetEvent doneEvent = new ManualResetEvent (false);
-			CorValue result = null;
-
-            DebugEventHandler<CorEvalEventArgs> completeHandler = delegate(object o, CorEvalEventArgs eargs)
-			{
-				OnEndEvaluating ();
-				result = eargs.Eval.Result;
-				doneEvent.Set ();
-				eargs.Continue = false;
-			};
-
-            DebugEventHandler<CorEvalEventArgs> exceptionHandler = delegate(object o, CorEvalEventArgs eargs)
-			{
-				OnEndEvaluating ();
-				result = eargs.Eval.Result;
-				doneEvent.Set ();
-				eargs.Continue = false;
-			};
-
-			try {
-				process.OnEvalComplete += completeHandler;
-				process.OnEvalException += exceptionHandler;
-
-				ctx.Eval.NewParameterizedArray (elemType, 1, 1, 0);
-				process.SetAllThreadsDebugState (CorDebugThreadState.THREAD_SUSPEND, ctx.Thread);
-				OnStartEvaluating ();
-				ClearEvalStatus ();
-				process.Continue (false);
-
-				if (doneEvent.WaitOne (ctx.Options.EvaluationTimeout, false))
-					return result;
-				else
-					return null;
+			catch (COMException ex) {
+				var evalException = TryConvertToEvalException (ex);
+				// eval exception is a 'good' exception that should be shown in value box
+				// all other exceptions must be thrown to error log
+				if (evalException != null)
+					throw evalException;
+				throw;
 			}
 			finally {
 				process.OnEvalComplete -= completeHandler;
 				process.OnEvalException -= exceptionHandler;
+				OnEndEvaluating ();
 			}
+		}
+
+		private static EvaluatorException TryConvertToEvalException (COMException ex)
+		{
+			var hResult = ex.ToHResult<HResult> ();
+			string message = null;
+			switch (hResult) {
+				case HResult.CORDBG_E_ILLEGAL_AT_GC_UNSAFE_POINT:
+					message = "The thread is not at a GC-safe point";
+					break;
+				case HResult.CORDBG_E_ILLEGAL_IN_PROLOG:
+					message = "The thread is in the prolog";
+					break;
+				case HResult.CORDBG_E_ILLEGAL_IN_NATIVE_CODE:
+					message = "The thread is in native code";
+					break;
+				case HResult.CORDBG_E_ILLEGAL_IN_OPTIMIZED_CODE:
+					message = "The thread is in optimized code";
+					break;
+			}
+			if (message != null)
+				return new EvaluatorException ("Evaluation is not allowed: {0}", message);
+			return null;
+		}
+
+		public CorValue NewString (CorEvaluationContext ctx, string value)
+		{
+			return NewSpecialObject (ctx, eval => eval.NewString (value));
+		}
+
+		public CorValue NewArray (CorEvaluationContext ctx, CorType elemType, int size)
+		{
+			;
+			return NewSpecialObject (ctx, eval => eval.NewParameterizedArray (elemType, 1, 1, 0));
 		}
 
 		public void WaitUntilStopped ()
@@ -1385,7 +1524,7 @@ namespace Mono.Debugging.Win32
 				}
 			}
 		}
-		
+
 		void ClearHandles ( )
 		{
 			foreach (CorHandleValue handle in handles.Values) {
@@ -1424,7 +1563,7 @@ namespace Mono.Debugging.Win32
 					catch {
 						loc = "<Unknown>";
 					}
-					
+
 					info = new ThreadInfo (thread.Process.Id, thread.Id, GetThreadName (thread), loc);
 					threads[thread.Id] = info;
 				}
@@ -1449,31 +1588,31 @@ namespace Mono.Debugging.Win32
 		string GetThreadName (CorThread thread)
 		{
 			// From http://social.msdn.microsoft.com/Forums/en/netfxtoolsdev/thread/461326fe-88bd-4a6b-82a9-1a66b8e65116
-		    try 
-		    { 
-		        CorReferenceValue refVal = thread.ThreadVariable.CastToReferenceValue(); 
-		        if (refVal.IsNull) 
-		            return string.Empty; 
-		        
-		        CorObjectValue val = refVal.Dereference().CastToObjectValue(); 
-		        if (val != null) 
-		        { 
+			try
+			{
+				CorReferenceValue refVal = thread.ThreadVariable.CastToReferenceValue();
+				if (refVal.IsNull)
+					return string.Empty;
+
+				CorObjectValue val = refVal.Dereference().CastToObjectValue();
+				if (val != null)
+				{
 					Type classType = val.ExactType.GetTypeInfo (this);
-		            // Loop through all private instance fields in the thread class 
-		            foreach (FieldInfo fi in classType.GetFields (BindingFlags.NonPublic | BindingFlags.Instance))
-		            { 
-		                if (fi.Name == "m_Name")
+					// Loop through all private instance fields in the thread class
+					foreach (FieldInfo fi in classType.GetFields (BindingFlags.NonPublic | BindingFlags.Instance))
+					{
+						if (fi.Name == "m_Name")
 						{
-		                        CorReferenceValue fieldValue = val.GetFieldValue(val.Class, fi.MetadataToken).CastToReferenceValue(); 
-							
-								if (fieldValue.IsNull)
-									return string.Empty;
-								else
-									return fieldValue.Dereference().CastToStringValue().String;
-		                } 
-		            } 
-		        } 
-		    } catch (Exception) {
+							CorReferenceValue fieldValue = val.GetFieldValue(val.Class, fi.MetadataToken).CastToReferenceValue();
+
+							if (fieldValue.IsNull)
+								return string.Empty;
+							else
+								return fieldValue.Dereference().CastToStringValue().String;
+						}
+					}
+				}
+			} catch (Exception) {
 				// Ignore
 			}
 			
@@ -1584,6 +1723,8 @@ namespace Mono.Debugging.Win32
 				}
 				try {
 					frame.SetIP (offset);
+					OnStopped ();
+					RaiseStopEvent ();
 				} catch {
 					throw new NotSupportedException ();
 				}
