@@ -1257,19 +1257,18 @@ namespace Mono.Debugging.Win32
 			var methodCall = new CorMethodCall (ctx, function, typeArgs, args);
 
 			try {
-				ObjectAdapter.AsyncExecute (methodCall, ctx.Options.EvaluationTimeout);
+				var result = ObjectAdapter.InvokeSync (methodCall, ctx.Options.EvaluationTimeout).ThrowIfException (ctx);
+				WaitUntilStopped ();
+				return result.Result;
 			}
 			catch (COMException ex) {
 				throw new EvaluatorException (ex.Message);
 			}
 
-			WaitUntilStopped ();
-			if (methodCall.IsException) {
-				var vref = new CorValRef (methodCall.Result);
-				throw new EvaluatorExceptionThrownException (vref, ObjectAdapter.GetValueTypeName (ctx, vref));
-			}
-
-			return methodCall.Result;
+//			if (methodCall.IsException) {
+//				var vref = new CorValRef (methodCall.Result);
+//				throw new EvaluatorExceptionThrownException (vref, ObjectAdapter.GetValueTypeName (ctx, vref));
+//			}
 		}
 
 		internal void OnStartEvaluating ( )

@@ -1,5 +1,4 @@
-﻿using System;
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Samples.Debugging.CorDebug;
 using Microsoft.Samples.Debugging.CorDebug.NativeApi;
@@ -7,7 +6,7 @@ using Mono.Debugging.Evaluation;
 
 namespace Mono.Debugging.Win32
 {
-	class CorMethodCall: AsyncOperationBase
+	class CorMethodCall: AsyncOperationBase<CorValue>
 	{
 		readonly CorEvaluationContext context;
 		readonly CorFunction function;
@@ -16,8 +15,6 @@ namespace Mono.Debugging.Win32
 
 		readonly CorEval eval;
 
-		public bool IsException { get; private set; }
-
 		public CorMethodCall (CorEvaluationContext context, CorFunction function, CorType[] typeArgs, CorValue[] args)
 		{
 			this.context = context;
@@ -25,29 +22,25 @@ namespace Mono.Debugging.Win32
 			this.typeArgs = typeArgs;
 			this.args = args;
 			eval = context.Eval;
-			IsException = false;
 		}
 
 		void ProcessOnEvalComplete (object sender, CorEvalEventArgs evalArgs)
 		{
-			DoProcessEvalFinished (evalArgs);
+			DoProcessEvalFinished (evalArgs, false);
 		}
 
 		void ProcessOnEvalException (object sender, CorEvalEventArgs evalArgs)
 		{
-			IsException = true;
-			DoProcessEvalFinished (evalArgs);
+			DoProcessEvalFinished (evalArgs, true);
 		}
 
-		void DoProcessEvalFinished (CorEvalEventArgs evalArgs)
+		void DoProcessEvalFinished (CorEvalEventArgs evalArgs, bool isException)
 		{
 			if (evalArgs.Eval != eval)
 				return;
 			context.Session.OnEndEvaluating ();
-			// TODO: check that evalArgs.Eval == this.eval
-			//exception = eargs.Eval.Result;
 			evalArgs.Continue = false;
-			tcs.SetResult (eval.Result);
+			tcs.SetResult (new OperationResult<CorValue> (evalArgs.Eval.Result, isException));
 		}
 
 		void SubscribeOnEvals ()
@@ -75,9 +68,9 @@ namespace Mono.Debugging.Win32
 			}
 		}
 
-		private readonly TaskCompletionSource<CorValue> tcs = new TaskCompletionSource<CorValue> ();
+		readonly TaskCompletionSource<OperationResult<CorValue>> tcs = new TaskCompletionSource<OperationResult<CorValue>> ();
 
-		protected override Task InvokeAsyncImpl (CancellationToken token)
+		protected override Task<OperationResult<CorValue>> InvokeAsyncImpl (CancellationToken token)
 		{
 			SubscribeOnEvals ();
 
@@ -90,22 +83,21 @@ namespace Mono.Debugging.Win32
 			context.Session.ClearEvalStatus ();
 			context.Session.OnStartEvaluating ();
 			context.Session.Process.Continue (false);
-			Task =  tcs.Task;
-			return Task.ContinueWith (_ => { UnSubcribeOnEvals (); }, token);
+			Task = tcs.Task;
+			return Task.ContinueWith (task => {
+				UnSubcribeOnEvals ();
+				return task.Result;
+			}, token);
 		}
 
 
 		protected override void CancelImpl ( )
 		{
-			eval.Abort ();
-		}
-
-
-		public CorValue Result
-		{
-			get
-			{
-				return eval.Result;
+			try {
+				eval.Abort ();
+			}
+			finally {
+				tcs.SetCanceled ();
 			}
 		}
 	}
