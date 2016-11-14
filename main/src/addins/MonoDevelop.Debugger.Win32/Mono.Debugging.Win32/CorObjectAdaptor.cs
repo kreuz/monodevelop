@@ -150,6 +150,9 @@ namespace Mono.Debugging.Win32
 			if (val == null)
 				return GetType (ctx, "System.Object");
 
+			var value = val as CorValue;
+			if (value != null)
+				return value.ExactType;
 			var realObject = GetRealObject (ctx, val);
 			if (realObject == null)
 				return GetType (ctx, "System.Object");;
@@ -828,10 +831,16 @@ namespace Mono.Debugging.Win32
 
 		public static CorValue GetRealObject (EvaluationContext cctx, object objr)
 		{
-			if (objr == null || ((CorValRef) objr).Val == null)
+			if (objr == null)
 				return null;
 
-			return GetRealObject (cctx, ((CorValRef) objr).Val);
+			var corValue = objr as CorValue;
+			if (corValue != null)
+				return GetRealObject (cctx, corValue);
+			var valRef = objr as CorValRef;
+			if (valRef != null)
+				return GetRealObject (cctx, valRef.Val);
+			return null;
 		}
 
 		public static CorValue GetRealObject (EvaluationContext ctx, CorValue obj)

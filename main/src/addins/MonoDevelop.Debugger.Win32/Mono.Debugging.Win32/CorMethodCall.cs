@@ -40,7 +40,7 @@ namespace Mono.Debugging.Win32
 				return;
 			context.Session.OnEndEvaluating ();
 			evalArgs.Continue = false;
-			tcs.SetResult (new OperationResult<CorValue> (evalArgs.Eval.Result, isException));
+			tcs.TrySetResult(new OperationResult<CorValue> (evalArgs.Eval.Result, isException));
 		}
 
 		void SubscribeOnEvals ()
@@ -69,12 +69,24 @@ namespace Mono.Debugging.Win32
 		}
 
 		readonly TaskCompletionSource<OperationResult<CorValue>> tcs = new TaskCompletionSource<OperationResult<CorValue>> ();
+		const int DelayAfterAbort = 500;
+
+		protected override void AfterCancelledImpl (int elapsedAfterCancelMs)
+		{
+			if (tcs.TrySetCanceled ()) {
+				// really cancelled for the first time not before. so we should check that we awaited necessary amout of time after Abort() call
+				// else if we return too earle after Abort() the process may be PROCESS_NOT_SYNCHRONIZED
+				if (elapsedAfterCancelMs < DelayAfterAbort) {
+					//Thread.Sleep (DelayAfterAbort - elapsedAfterCancelMs);
+				}
+			}
+			context.Session.OnEndEvaluating ();
+		}
 
 		protected override Task<OperationResult<CorValue>> InvokeAsyncImpl (CancellationToken token)
 		{
 			SubscribeOnEvals ();
 
-			//try catch
 			if (function.GetMethodInfo (context.Session).Name == ".ctor")
 				eval.NewParameterizedObject (function, typeArgs, args);
 			else
@@ -84,21 +96,18 @@ namespace Mono.Debugging.Win32
 			context.Session.OnStartEvaluating ();
 			context.Session.Process.Continue (false);
 			Task = tcs.Task;
+			// Don't pass token here, because it causes immediately task cancellation which must be performed by debugger event or real timeout 
+			// ReSharper disable once MethodSupportsCancellation
 			return Task.ContinueWith (task => {
 				UnSubcribeOnEvals ();
 				return task.Result;
-			}, token);
+			});
 		}
 
 
 		protected override void CancelImpl ( )
 		{
-			try {
-				eval.Abort ();
-			}
-			finally {
-				tcs.SetCanceled ();
-			}
+			eval.Abort ();
 		}
 	}
 }
