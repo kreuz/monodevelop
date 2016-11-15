@@ -750,7 +750,8 @@ namespace Mono.Debugging.Win32
 				  DebuggerLoggingService.LogMessage ("Failed to unload app domain {0} (id {1}) because it's not found in map. Possibly already unloaded.", e.AppDomain.Name, appDomainId);
 				}
 			}
-			e.AppDomain.Detach ();
+			// Detach is not implemented for ICorDebugAppDomain, it's valid only for ICorDebugProcess
+			//e.AppDomain.Detach ();
 			e.Continue = true;
 			OnDebuggerOutput (false, string.Format("Unloaded application domain '{0} (id {1})'\n", e.AppDomain.Name, appDomainId));
 		}
@@ -1224,6 +1225,7 @@ namespace Mono.Debugging.Win32
 		void Step (bool into)
 		{
 			try {
+				ObjectAdapter.CancelAsyncOperations ();
 				if (stepper != null) {
 					CorFrame frame = activeThread.ActiveFrame;
 					ISymbolReader reader = GetReaderForModule (frame.Function.Module);
@@ -1267,7 +1269,7 @@ namespace Mono.Debugging.Win32
 					process.Continue (false);
 				}
 			} catch (Exception e) {
-				OnDebuggerOutput (true, e.ToString ());
+				DebuggerLoggingService.LogError ("Exception on Step()", e);
 			}
 		}
 
@@ -1386,7 +1388,12 @@ namespace Mono.Debugging.Win32
 			var methodCall = new CorMethodCall (ctx, function, typeArgs, args);
 
 			try {
-				var result = ObjectAdapter.InvokeSync (methodCall, ctx.Options.EvaluationTimeout).ThrowIfException (ctx);
+				var result = ObjectAdapter.InvokeSync (methodCall, ctx.Options.EvaluationTimeout);
+				if (result.ResultIsException) {
+					var vref = new CorValRef (result.Result);
+					throw new EvaluatorExceptionThrownException (vref, ObjectAdapter.GetValueTypeName (ctx, vref));
+				}
+
 				WaitUntilStopped ();
 				return result.Result;
 			}
