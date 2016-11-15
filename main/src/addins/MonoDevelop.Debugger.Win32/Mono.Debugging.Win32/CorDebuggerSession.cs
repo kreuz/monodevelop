@@ -1497,6 +1497,9 @@ namespace Mono.Debugging.Win32
 				case HResult.CORDBG_E_ILLEGAL_IN_OPTIMIZED_CODE:
 					message = "The thread is in optimized code";
 					break;
+				case HResult.CORDBG_E_FUNC_EVAL_BAD_START_POINT:
+					message = "Bad starting point to perform evaluation";
+					break;
 			}
 			if (message != null)
 				return new EvaluatorException ("Evaluation is not allowed: {0}", message);
