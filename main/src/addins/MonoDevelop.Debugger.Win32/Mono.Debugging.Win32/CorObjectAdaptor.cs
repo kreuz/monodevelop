@@ -140,7 +140,7 @@ namespace Mono.Debugging.Win32
 				return type.GetTypeInfo (cctx.Session).FullName;
 			}
 			catch (Exception ex) {
-				ctx.WriteDebuggerError (ex);
+				DebuggerLoggingService.LogError ("Exception in GetTypeName()", ex);
 				return t.FullName;
 			}
 		}
@@ -213,9 +213,7 @@ namespace Mono.Debugging.Win32
 			for (int i = 0; i < typeArgs.Length; i++) {
 				string currentTypeName;
 				if (!typeToNameCache.TryGetValue (typeArgs[i], out currentTypeName)) {
-					ctx.WriteDebuggerError (
-						new InvalidOperationException (string.Format(
-							"Can't get cached name for generic type {0} because it's substitution type isn't found in cache", name)));
+					DebuggerLoggingService.LogMessage ("Can't get cached name for generic type {0} because it's substitution type isn't found in cache", name);
 					return null; //Unable to resolve? Don't cache. This should never happen.
 				}
 				result.Append (currentTypeName);
@@ -1669,7 +1667,7 @@ namespace Mono.Debugging.Win32
 				}
 			}
 			catch (Exception ex) {
-				ctx.WriteDebuggerError (ex);
+				DebuggerLoggingService.LogError ("Exception in OnGetTypeDisplayData()", ex);
 			}
 			if (hasTypeData)
 				return new TypeDisplayData (proxyType, valueDisplayString, typeDisplayString, nameDisplayString, isCompilerGenerated, memberData);
