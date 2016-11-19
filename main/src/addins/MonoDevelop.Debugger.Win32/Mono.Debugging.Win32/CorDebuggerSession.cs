@@ -1513,7 +1513,6 @@ namespace Mono.Debugging.Win32
 
 		public CorValue NewArray (CorEvaluationContext ctx, CorType elemType, int size)
 		{
-			;
 			return NewSpecialObject (ctx, eval => eval.NewParameterizedArray (elemType, 1, 1, 0));
 		}
 
