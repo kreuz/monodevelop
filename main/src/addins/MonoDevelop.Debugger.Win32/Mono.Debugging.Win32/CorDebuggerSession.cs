@@ -121,8 +121,8 @@ namespace Mono.Debugging.Win32
 		{
 			MtaThread.Run (() => {
 				TerminateDebugger ();
+				ObjectAdapter.Dispose();
 			});
-			ObjectAdapter.Dispose();
 			helperOperationsCancellationTokenSource.Dispose ();
 			helperOperationsQueue.Dispose ();
 
