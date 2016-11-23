@@ -529,6 +529,10 @@ namespace Mono.Debugging.Win32
 					return true;
 			}
 
+			if ((bp.HitAction & HitAction.PrintTrace) != HitAction.None) {
+				OnTargetDebug (0, "", "Breakpoint reached: " + bp.FileName + ":" + bp.Line + Environment.NewLine);
+			}
+
 			if ((bp.HitAction & HitAction.PrintExpression) != HitAction.None) {
 				string exp = EvaluateTrace (thread, bp.TraceExpression);
 				binfo.UpdateLastTraceValue (exp);
