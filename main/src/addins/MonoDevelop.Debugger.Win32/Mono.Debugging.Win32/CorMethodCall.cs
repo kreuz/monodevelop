@@ -77,7 +77,7 @@ namespace Mono.Debugging.Win32
 				// really cancelled for the first time not before. so we should check that we awaited necessary amout of time after Abort() call
 				// else if we return too earle after Abort() the process may be PROCESS_NOT_SYNCHRONIZED
 				if (elapsedAfterCancelMs < DelayAfterAbort) {
-					//Thread.Sleep (DelayAfterAbort - elapsedAfterCancelMs);
+					Thread.Sleep (DelayAfterAbort - elapsedAfterCancelMs);
 				}
 			}
 			context.Session.OnEndEvaluating ();
