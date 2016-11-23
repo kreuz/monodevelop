@@ -382,11 +382,8 @@ namespace Mono.Debugging.Win32
 		CorValRef Box (CorEvaluationContext ctx, CorValRef val)
 		{
 			CorValRef arr = new CorValRef (delegate { return ctx.Session.NewArray (ctx, (CorType) GetValueType (ctx, val), 1); });
-			CorArrayValue array = GetRealObject (ctx, arr) as CorArrayValue;
-
-			ArrayAdaptor realArr = new ArrayAdaptor (ctx, arr, array);
+			ArrayAdaptor realArr = new ArrayAdaptor (ctx, new CorValRef<CorArrayValue> (() => (CorArrayValue) GetRealObject (ctx, arr)));
 			realArr.SetElement (new[] {0}, val);
-			arr.IsValid = true;
 			CorType at = (CorType) GetType (ctx, "System.Array");
 			object[] argTypes = {GetType (ctx, "System.Int32")};
 			return (CorValRef) RuntimeInvoke (ctx, at, arr, "GetValue", argTypes, new object[] {CreateValue (ctx, 0)});
@@ -814,7 +811,7 @@ namespace Mono.Debugging.Win32
 			CorValue val = GetRealObject (ctx, arr);
 
 			if (val is CorArrayValue)
-				return new ArrayAdaptor (ctx, (CorValRef) arr, (CorArrayValue) val);
+				return new ArrayAdaptor (ctx, new CorValRef<CorArrayValue> ((CorArrayValue) val, () => (CorArrayValue) GetRealObject (ctx, arr)));
 			return null;
 		}
 
