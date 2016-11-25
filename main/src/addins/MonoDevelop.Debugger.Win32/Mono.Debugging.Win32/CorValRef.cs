@@ -46,6 +46,8 @@ namespace Mono.Debugging.Win32
 
 		bool IsAlive ()
 		{
+			if (val == null)
+				return false;
 			try {
 				// ReSharper disable once UnusedVariable
 
