@@ -30,6 +30,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using CorApi2.Metadata.Microsoft.Samples.Debugging.CorMetadata;
 using Microsoft.Samples.Debugging.CorDebug.NativeApi;
 using Microsoft.Samples.Debugging.CorMetadata;
 using Microsoft.Samples.Debugging.CorMetadata.NativeApi;
@@ -153,12 +154,7 @@ namespace Microsoft.Samples.Debugging.Extensions
 				argTypes.Add (ReadType (importer, instantiation, ref pData));
 		}
 
-		class GenericType
-		{
-			// Used as marker for generic method args
-		}
-
-		static Type ReadType (IMetadataImport importer, Instantiation instantiation, ref IntPtr pData)
+	    static Type ReadType (IMetadataImport importer, Instantiation instantiation, ref IntPtr pData)
 		{
 			CorElementType et;
 			unsafe {
@@ -193,12 +189,12 @@ namespace Microsoft.Samples.Debugging.Extensions
 					if (index < instantiation.TypeArgs.Count) {
 						return instantiation.TypeArgs[(int) index];
 					}
-					return typeof(GenericType);
+					return new TypeGenericParameter(index);
 				}
 				case CorElementType.ELEMENT_TYPE_MVAR: {
 					// Generic args in methods not supported. Return a dummy type.
 					var index = MetadataHelperFunctions.CorSigUncompressData (ref pData);
-					return typeof(GenericType);
+					return new MethodGenericParameter(index);
 				}
 
 				case CorElementType.ELEMENT_TYPE_GENERICINST: {
@@ -256,7 +252,7 @@ namespace Microsoft.Samples.Debugging.Extensions
 					CorCallingConvention cconv;
 					Type retType;
 					List<Type> argTypes;
-					ReadMethodSignature (importer, Instantiation.Empty, ref pData, out cconv, out retType, out argTypes);
+					ReadMethodSignature (importer, instantiation, ref pData, out cconv, out retType, out argTypes);
 					return MetadataExtensions.MakeDelegate (retType, argTypes);
 				}
 

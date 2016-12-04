@@ -35,6 +35,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using CorApi2.Metadata.Microsoft.Samples.Debugging.CorMetadata;
 using Microsoft.Samples.Debugging.CorDebug;
 using Microsoft.Samples.Debugging.CorDebug.NativeApi;
 using Microsoft.Samples.Debugging.CorMetadata;
@@ -635,6 +636,10 @@ namespace Mono.Debugging.Win32
 
 		bool IsAssignableFrom (CorEvaluationContext ctx, Type baseType, CorType ctype)
 		{
+			// the type is method generic parameter, we have to check its constraints, but now we don't have the info about it
+			// and assume that any type is assignable to method generic type parameter
+			if (baseType is MethodGenericParameter)
+				return true;
 			string tname = baseType.FullName;
 			string ctypeName = GetTypeName (ctx, ctype);
 			if (tname == "System.Object")
