@@ -156,21 +156,23 @@ namespace CorApi2.Metadata
 				throw new NotImplementedException ();
 			}
 
-			public override Type UnderlyingSystemType { get; }
+			public override Type UnderlyingSystemType { get { throw new NotImplementedException (); } }
 
 			protected override ConstructorInfo GetConstructorImpl (BindingFlags bindingAttr, Binder binder, CallingConventions callConvention, Type[] types, ParameterModifier[] modifiers)
 			{
 				throw new NotImplementedException ();
 			}
 
-			public override string Name { get; }
-			public override Guid GUID { get; }
-			public override Module Module { get; }
-			public override Assembly Assembly { get; }
-			public override string FullName { get; }
-			public override string Namespace { get; }
-			public override string AssemblyQualifiedName { get; }
-			public override Type BaseType { get; }
+			public override string Name { get { return string.Format("`{0}", Index); }}
+			public override Guid GUID { get {return Guid.Empty;}}
+			public override Module Module { get {throw new NotImplementedException ();} }
+			public override Assembly Assembly { get { throw new NotImplementedException (); } }
+			public override string FullName { get { return Name; }}
+			public override string Namespace { get {throw new NotImplementedException ();} }
+
+			public override string AssemblyQualifiedName { get { throw new NotImplementedException (); }}
+
+			public override Type BaseType { get {throw new NotImplementedException ();} }
 
 			public override object[] GetCustomAttributes (Type attributeType, bool inherit)
 			{
