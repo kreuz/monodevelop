@@ -30,6 +30,11 @@ namespace CorApi2.Metadata
 				Index = index;
 			}
 
+			public override Type MakeByRefType ()
+			{
+				return this;
+			}
+
 			// Used as marker for generic method args
 			public override object[] GetCustomAttributes (bool inherit)
 			{
