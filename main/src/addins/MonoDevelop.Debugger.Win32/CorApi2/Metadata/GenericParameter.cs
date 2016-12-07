@@ -35,6 +35,26 @@ namespace CorApi2.Metadata
 				return this;
 			}
 
+			public override Type MakePointerType ()
+			{
+				return this;
+			}
+
+			public override Type MakeArrayType ()
+			{
+				return this;
+			}
+
+			public override Type MakeArrayType (int rank)
+			{
+				return this;
+			}
+
+			public override Type MakeGenericType (params Type[] typeArguments)
+			{
+				return this;
+			}
+
 			// Used as marker for generic method args
 			public override object[] GetCustomAttributes (bool inherit)
 			{
