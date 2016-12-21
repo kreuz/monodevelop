@@ -79,6 +79,13 @@ namespace Mono.Debugging.Win32
 			get { return evaluationTimestamp; }
 		}
 
+		internal CorProcess Process
+		{
+			get
+			{
+				return process;
+			}
+		}
 
 		public override void Dispose ( )
 		{
@@ -912,6 +919,7 @@ namespace Mono.Debugging.Win32
 		void Step (bool into)
 		{
 			try {
+				ObjectAdapter.CancelAsyncOperations ();
 				if (stepper != null) {
 					CorFrame frame = activeThread.ActiveFrame;
 					ISymbolReader reader = GetReaderForModule (frame.Function.Module.Name);
@@ -955,7 +963,7 @@ namespace Mono.Debugging.Win32
 					process.Continue (false);
 				}
 			} catch (Exception e) {
-				OnDebuggerOutput (true, e.ToString ());
+				DebuggerLoggingService.LogError ("Exception on Step()", e);
 			}
 		}
 
@@ -1065,80 +1073,30 @@ namespace Mono.Debugging.Win32
 				args[0] = thisObj;
 				arguments.CopyTo (args, 1);
 			}
-
-			CorMethodCall mc = new CorMethodCall ();
-			CorValue exception = null;
-			CorEval eval = ctx.Eval;
-
-			EvalEventHandler completeHandler = delegate (object o, CorEvalEventArgs eargs) {
-				OnEndEvaluating ();
-				mc.DoneEvent.Set ();
-				eargs.Continue = false;
-			};
-
-			EvalEventHandler exceptionHandler = delegate (object o, CorEvalEventArgs eargs) {
-				OnEndEvaluating ();
-				exception = eargs.Eval.Result;
-				mc.DoneEvent.Set ();
-				eargs.Continue = false;
-			};
-
-			process.OnEvalComplete += completeHandler;
-			process.OnEvalException += exceptionHandler;
-
-			mc.OnInvoke = delegate {
-				if (function.GetMethodInfo (this).Name == ".ctor")
-					eval.NewParameterizedObject (function, typeArgs, args);
-				else
-					eval.CallParameterizedFunction (function, typeArgs, args);
-				process.SetAllThreadsDebugState (CorDebugThreadState.THREAD_SUSPEND, ctx.Thread);
-				ClearEvalStatus ();
-				OnStartEvaluating ();
-				process.Continue (false);
-			};
-			mc.OnAbort = delegate {
-				eval.Abort ();
-			};
-			mc.OnGetDescription = delegate {
-				MethodInfo met = function.GetMethodInfo (ctx.Session);
-				if (met != null)
-					return met.DeclaringType.FullName + "." + met.Name;
-				else
-					return "<Unknown>";
-			};
-
+			var methodCall = new CorMethodCall (ctx, function, typeArgs, args);
 			try {
-				ObjectAdapter.AsyncExecute (mc, ctx.Options.EvaluationTimeout);
-			}
-			finally {
-				process.OnEvalComplete -= completeHandler;
-				process.OnEvalException -= exceptionHandler;
-			}
-
-			WaitUntilStopped ();
-			if (exception != null) {
-/*				ValueReference<CorValue, CorType> msg = ctx.Adapter.GetMember (ctx, val, "Message");
-				if (msg != null) {
-					string s = msg.ObjectValue as string;
-					mc.ExceptionMessage = s;
+				var result = ObjectAdapter.InvokeSync (methodCall, ctx.Options.EvaluationTimeout);
+				if (result.ResultIsException) {
+					var vref = new CorValRef (result.Result);
+					throw new EvaluatorExceptionThrownException (vref, ObjectAdapter.GetValueTypeName (ctx, vref));
 				}
-				else
-					mc.ExceptionMessage = "Evaluation failed.";*/
-				CorValRef vref = new CorValRef (exception);
-				throw new EvaluatorException ("Evaluation failed: " + ObjectAdapter.GetValueTypeName (ctx, vref));
-			}
 
-			return eval.Result;
+				WaitUntilStopped ();
+				return result.Result;
+			}
+			catch (COMException ex) {
+				throw new EvaluatorException (ex.Message);
+			}
 		}
 
-		void OnStartEvaluating ( )
+		internal void OnStartEvaluating ( )
 		{
 			lock (debugLock) {
 				evaluating = true;
 			}
 		}
 
-		void OnEndEvaluating ( )
+		internal void OnEndEvaluating ( )
 		{
 			lock (debugLock) {
 				evaluating = false;
@@ -1235,7 +1193,7 @@ namespace Mono.Debugging.Win32
 			}
 		}
 
-		void ClearEvalStatus ( )
+		internal void ClearEvalStatus ( )
 		{
 			foreach (CorProcess p in dbg.Processes) {
 				if (p.Id == processId) {
